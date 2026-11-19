@@ -3,12 +3,12 @@
 
   const LIMITS = 5000;
   const sensors = [
-    { code: "H2S", name: "Hydrogen Sulfide", short: "H₂S", unit: "ADC counts", initial: 120, min: 80, max: 250, warning: 200, critical: 235, step: 7 },
-    { code: "CO", name: "Carbon Monoxide", short: "CO", unit: "ADC counts", initial: 180, min: 100, max: 350, warning: 280, critical: 330, step: 10 },
-    { code: "LPG", name: "LPG / Combustible Gas", short: "LPG", unit: "ADC counts", initial: 160, min: 80, max: 300, warning: 240, critical: 280, step: 9 },
-    { code: "CO2", name: "Carbon Dioxide", short: "CO₂", unit: "ppm (simulated)", initial: 650, min: 450, max: 1200, warning: 900, critical: 1100, step: 35 },
+    { code: "H2S", name: "MQ-4", short: "Methane (CH₄)", unit: "ADC counts", initial: 120, min: 80, max: 250, warning: 200, critical: 235, step: 7 },
+    { code: "CO", name: "MQ-7", short: "Carbon Monoxide (CO)", unit: "ADC counts", initial: 180, min: 100, max: 350, warning: 280, critical: 330, step: 10 },
+    { code: "LPG", name: "MQ-6", short: "Combustible Gas / LPG", unit: "ADC counts", initial: 160, min: 80, max: 300, warning: 240, critical: 280, step: 9 },
+    { code: "CO2", name: "MG-811", short: "Carbon Dioxide (CO₂)", unit: "ppm (simulated)", initial: 650, min: 450, max: 1200, warning: 900, critical: 1100, step: 35 },
     { code: "HR", name: "Ear-Clip Heart Rate", short: "Heart rate", unit: "BPM", initial: 78, min: 65, max: 100, warning: 105, critical: 120, step: 3 },
-    { code: "BATTERY", name: "Battery voltage", short: "Voltage", unit: "V", initial: 3.9, min: 3.3, max: 4.2, warning: 2.8, critical: 2.6, step: 0.025 },
+    { code: "BATTERY", name: "Voltage Sensor", short: "Battery Voltage", unit: "V", initial: 3.9, min: 3.3, max: 4.2, warning: 2.8, critical: 2.6, step: 0.025 },
     { code: "BATTERY_PERCENT", name: "Battery level", short: "Battery", unit: "%", initial: 85, min: 0, max: 100, warning: 20, critical: 10, step: 0.006 },
     { code: "CURRENT", name: "Current consumption", short: "Current", unit: "A", initial: 0.35, min: 0.25, max: 0.5, warning: 1, critical: 2, step: 0.018 }
   ];
