@@ -15,7 +15,8 @@ Minewatch reads real ESP32 gas-sensor telemetry from Supabase and refreshes the 
 ## Live data behavior
 
 - The browser queries the Supabase REST API for the newest 5,000 `HELMET-001` ESP32 rows and refreshes every 10 seconds.
-- Database codes map to dashboard labels: `MQ4_ADC` → methane (MQ-4), `MQ7_ADC` → CO (MQ-7), `MQ6_ADC` → LPG (MQ-6), and `MG811_ADC` → CO₂ (MG811). Values stay labeled **ADC counts**; the UI does not infer a gas concentration or safety status.
+- Database codes map to dashboard labels: `MQ4_ADC` → methane (MQ-4), `MQ7_ADC` → CO (MQ-7), `MQ6_ADC` → LPG (MQ-6), and `MG811_ADC` → CO₂ (MG811). Since these sensors are not calibrated, live readings are marked **NOT CALIBRATED**, remain in **ADC counts**, and are not given safe/warning/critical ratings. ADC zero is not treated as zero gas.
+- The overview and live monitoring pages separately show user-provided Philippine DENR DAO 97-30 Rule 153 references (methane 2,500 ppm, CO 50 ppm, CO₂ 5,000 ppm, and an LPG 10% LEL warning reference). These values are informational only, not independently verified here, and are not applied to raw ADC readings. Averaging periods remain “Not specified”; no exposure average is inferred.
 - Live telemetry renders through the existing dashboard pages and visual styling. Battery, heart-rate, and alert data are shown as not reported/not configured until firmware and backend support them.
 - Live history, charts, filtering, pagination, and CSV export use rows returned from Supabase. Data is read-only in the browser.
 - If setup is incomplete, the dashboard displays the database/configuration error rather than falling back to simulated readings.

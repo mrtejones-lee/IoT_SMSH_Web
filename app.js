@@ -40,7 +40,7 @@
     const date = new Date(value);
     return String(date.getHours()).padStart(2, "0") + ":" + String(date.getMinutes()).padStart(2, "0");
   }
-  function statusClass(status) { return String(status || "System").toLowerCase(); }
+  function statusClass(status) { return String(status || "System").toLowerCase().replace(/[^a-z0-9-]+/g, "-"); }
   function badge(status) { return '<span class="status ' + statusClass(status) + '">' + escapeHtml(status) + "</span>"; }
   function reading(code, digits) {
     const item = state().readings[code];
@@ -100,6 +100,22 @@
       '</div><div class="metric-sub">' + escapeHtml(sub) + "</div></article>";
   }
 
+  function gasReferencePanel() {
+    const references = [
+      ["MQ-4 · Methane (CH₄)", "0.25% / 2,500 ppm", "Not specified", "Reference as supplied; verify against the authoritative rule text."],
+      ["MQ-6 · LPG / combustible gas", "10% LEL warning reference", "Not specified", "Not confirmed as a legal limit; depends on target gas and calibration."],
+      ["MQ-7 · Carbon monoxide (CO)", "0.005% / 50 ppm", "Not specified", "Reference as supplied; verify against the authoritative rule text."],
+      ["MG811 · Carbon dioxide (CO₂)", "0.50% / 5,000 ppm", "Not specified", "Reference as supplied; verify against the authoritative rule text."]
+    ];
+    return '<section class="panel reference-panel"><div class="panel-head"><h2>Gas concentration references</h2><span>Informational only · not applied to ratings</span></div>' +
+      '<div class="panel-body"><p class="reference-warning">User-provided references attributed to Philippine DENR DAO 97-30, Rule 153; not independently verified here. Sensors are not calibrated and the firmware sends raw ADC counts, so the dashboard does not compare readings with these references or classify conditions.</p>' +
+      '<div class="table-wrap"><table><thead><tr><th>Sensor / gas</th><th>Reference provided</th><th>Averaging period</th><th>Use in dashboard</th></tr></thead><tbody>' +
+      references.map(function (row) {
+        return "<tr><td>" + escapeHtml(row[0]) + "</td><td>" + escapeHtml(row[1]) + "</td><td>" + escapeHtml(row[2]) + "</td><td>" + escapeHtml(row[3]) + "</td></tr>";
+      }).join("") +
+      '</tbody></table></div><p class="small-meta">All live readings remain raw ADC counts and are marked NOT CALIBRATED. ADC = 0 does not mean zero gas. Real-time readings are not occupational exposure averages.</p></div></section>';
+  }
+
   function liveControls() {
     const s = state();
     return '<section class="panel"><div class="panel-head"><h2>Database connection</h2><span class="demo-label">LIVE · ESP32</span></div><div class="panel-body">' +
@@ -125,7 +141,7 @@
       '<div class="status-line"><span>Last telemetry received</span><span>' + escapeHtml(time(s.lastHeartbeat)) + '</span></div>' +
       '<div class="status-line"><span>Data source</span><span>ESP32 · Supabase</span></div>' +
       '<div class="status-line"><span>Battery readings</span><span>Not sent by current firmware</span></div>' +
-      '<div class="status-line"><span>Alerts</span><span>Not configured for live data</span></div></section></div>' +
+      '<div class="status-line"><span>Alerts</span><span>Not configured for live data</span></div></section></div>' + gasReferencePanel() +
       '<div class="split">' + liveControls() + '<section class="panel"><div class="panel-head"><h2>Helmet details</h2><span>Minewatch Helmet 001</span></div>' +
       '<div class="status-line"><span>Helmet ID</span><span>HELMET-001</span></div>' +
       '<div class="status-line"><span>Participant</span><span>MINER-001 · anonymized</span></div>' +
@@ -141,6 +157,7 @@
     return header("Live monitoring", "ESP32 environmental sensor readings retrieved from Supabase. Values are raw, uncalibrated measurements.") +
       '<div class="toolbar"><h2 class="section-title">Environmental monitoring</h2><span class="demo-label">LIVE DATA – ESP32</span></div>' +
       '<div class="sensor-grid">' + config.map(function (sensor) { return sensorCard(sensor, true); }).join("") + '</div>' +
+      gasReferencePanel() +
       '<div class="toolbar" style="margin-top:22px"><h2 class="section-title">Other telemetry</h2></div>' +
       '<section class="panel"><div class="status-line"><span>Heart rate</span><span>Not sent by current ESP32 firmware</span></div>' +
       '<div class="status-line"><span>Battery voltage / current / charge</span><span>Not sent by current ESP32 firmware</span></div>' +
@@ -233,7 +250,7 @@
       '<div class="panel-body"><div class="form-row"><label class="field">Sensor<select id="history-sensor"><option value="all">All sensors</option>' +
       engine.config().map(function (sensor) { return '<option value="' + sensor.code + '"' + (f.sensor === sensor.code ? " selected" : "") + '>' + escapeHtml(sensor.name) + '</option>'; }).join("") +
       '</select></label><label class="field">Status<select id="history-status"><option value="all">All statuses</option>' +
-      ["unrated"].map(function (status) { return '<option value="' + status + '"' + (f.status === status ? " selected" : "") + '>' + status + '</option>'; }).join("") +
+      ["not calibrated", "no data"].map(function (status) { return '<option value="' + status + '"' + (f.status === status ? " selected" : "") + '>' + status + '</option>'; }).join("") +
       '</select></label><label class="field">Device<select id="history-device"><option value="all">All devices</option><option value="HELMET-001"' + (f.device === "HELMET-001" ? " selected" : "") + '>HELMET-001</option></select></label>' +
       '<label class="field">Date<input id="history-date" type="date" value="' + escapeHtml(f.date) + '"></label>' +
       '<label class="field">Time<input id="history-time" type="time" value="' + escapeHtml(f.time) + '"></label>' +

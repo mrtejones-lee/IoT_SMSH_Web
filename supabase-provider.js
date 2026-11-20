@@ -91,7 +91,7 @@
       databaseSensorCode: row.sensor_code,
       value: value,
       unit: sensor.unit,
-      status: "Unrated",
+      status: "Not calibrated",
       timestamp: timestamp,
       source: "ESP32"
     };
@@ -165,7 +165,7 @@
         reading.unit = latest ? latest.unit : sensor.unit;
         reading.updatedAt = latest ? latest.timestamp : null;
         reading.available = Boolean(latest);
-        reading.status = latest ? "Unrated" : "No data";
+        reading.status = latest ? "Not calibrated" : "No data";
       });
 
       state.lastTelemetry = history.length ? history.reduce(function (latest, record) {
