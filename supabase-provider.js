@@ -43,6 +43,7 @@
     deviceOnline: false,
     lastHeartbeat: null,
     lastTelemetry: null,
+    stableSince: null,
     connectionStatus: "checking",
     error: "",
     source: "ESP32",
@@ -93,6 +94,7 @@
       unit: sensor.unit,
       status: "Not calibrated",
       timestamp: timestamp,
+      lastSeenAt: row.received_at || timestamp,
       source: "ESP32"
     };
   }
@@ -171,9 +173,17 @@
       state.lastTelemetry = history.length ? history.reduce(function (latest, record) {
         return Date.parse(record.timestamp) > Date.parse(latest) ? record.timestamp : latest;
       }, history[0].timestamp) : null;
-      state.lastHeartbeat = state.lastTelemetry;
+      const latestBySensor = sensors.map(function (sensor) {
+        return history.find(function (record) { return record.sensorCode === sensor.code; });
+      }).filter(Boolean);
+      state.stableSince = latestBySensor.length
+        ? latestBySensor.map(function (record) { return record.timestamp; }).sort()[0]
+        : null;
+      state.lastHeartbeat = latestBySensor.length
+        ? latestBySensor.map(function (record) { return record.lastSeenAt; }).sort().slice(-1)[0]
+        : null;
       state.deviceOnline = Boolean(state.lastTelemetry) &&
-        Date.now() - Date.parse(state.lastTelemetry) <= config.recentTelemetryMs;
+        Date.now() - Date.parse(state.lastHeartbeat) <= config.recentTelemetryMs;
     } catch (error) {
       state.connectionStatus = "error";
       state.error = error.name === "AbortError"

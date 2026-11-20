@@ -56,7 +56,8 @@ Deno.serve(async (request) => {
   }
 
   const entries = Object.entries(payload.readings);
-  if (entries.length === 0 || entries.some(([code, value]) =>
+  if (entries.length !== Object.keys(allowedReadings).length ||
+      entries.some(([code, value]) =>
     !(code in allowedReadings) ||
     typeof value !== "number" ||
     !Number.isInteger(value) ||
@@ -78,12 +79,68 @@ Deno.serve(async (request) => {
     auth: { persistSession: false },
   });
 
+  const latestResults = await Promise.all(
+    entries.map(([code]) => supabase
+      .from("telemetry_readings")
+      .select("id,sensor_code,value,captured_at")
+      .eq("device_id", "HELMET-001")
+      .eq("source", "ESP32")
+      .eq("sensor_code", code)
+      .order("captured_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle())
+  );
+  const lookupError = latestResults.find((result) => result.error)?.error;
+
+  if (lookupError) {
+    console.error("Latest telemetry lookup failed:", lookupError.message);
+    return new Response("Database lookup failed", { status: 500 });
+  }
+
+  const previousRows = latestResults
+    .map((result) => result.data)
+    .filter((row): row is NonNullable<typeof row> => row !== null);
+  const valuesUnchanged =
+    previousRows.length === entries.length &&
+    entries.every(([code, value]) => {
+      const previous = previousRows.find((row) => row.sensor_code === code);
+      return previous !== undefined && Number(previous.value) === value;
+    });
+
+  const lastSeenAt = new Date().toISOString();
+  if (valuesUnchanged) {
+    const rowIds = previousRows.map((row) => row.id);
+    const { error } = await supabase
+      .from("telemetry_readings")
+      .update({ received_at: lastSeenAt })
+      .in("id", rowIds);
+
+    if (error) {
+      console.error("Telemetry last-seen update failed:", error.message);
+      return new Response("Database heartbeat update failed", { status: 500 });
+    }
+
+    const stableSince = previousRows
+      .map((row) => row.captured_at)
+      .sort()[0];
+
+    return Response.json({
+      accepted: 0,
+      unchanged: true,
+      stable_since: stableSince,
+      last_seen_at: lastSeenAt,
+    });
+  }
+
   const rows = entries.map(([code, value]) => ({
     device_id: "HELMET-001",
     sensor_code: code,
     value,
     unit: allowedReadings[code],
     source: "ESP32",
+    captured_at: lastSeenAt,
+    received_at: lastSeenAt,
   }));
 
   const { error } = await supabase.from("telemetry_readings").insert(rows);
@@ -93,5 +150,10 @@ Deno.serve(async (request) => {
     return new Response("Database insert failed", { status: 500 });
   }
 
-  return Response.json({ accepted: rows.length });
+  return Response.json({
+    accepted: rows.length,
+    unchanged: false,
+    stable_since: lastSeenAt,
+    last_seen_at: lastSeenAt,
+  });
 });

@@ -40,6 +40,12 @@
     const date = new Date(value);
     return String(date.getHours()).padStart(2, "0") + ":" + String(date.getMinutes()).padStart(2, "0");
   }
+  function snapshotRange() {
+    const s = state();
+    return s.stableSince && s.lastHeartbeat
+      ? time(s.stableSince) + " – " + time(s.lastHeartbeat)
+      : "Waiting for first complete snapshot";
+  }
   function statusClass(status) { return String(status || "System").toLowerCase().replace(/[^a-z0-9-]+/g, "-"); }
   function badge(status) { return '<span class="status ' + statusClass(status) + '">' + escapeHtml(status) + "</span>"; }
   function reading(code, digits) {
@@ -139,6 +145,7 @@
       '<div class="status-line"><span>Database connection</span>' + badge(s.connectionStatus === "connected" ? "Connected" : s.connectionStatus) + '</div>' +
       '<div class="status-line"><span>Telemetry freshness</span>' + badge(s.deviceOnline ? "Recent" : "Stale / none") + '</div>' +
       '<div class="status-line"><span>Last telemetry received</span><span>' + escapeHtml(time(s.lastHeartbeat)) + '</span></div>' +
+      '<div class="status-line"><span>Current values unchanged</span><span>' + escapeHtml(snapshotRange()) + '</span></div>' +
       '<div class="status-line"><span>Data source</span><span>ESP32 · Supabase</span></div>' +
       '<div class="status-line"><span>Battery readings</span><span>Not sent by current firmware</span></div>' +
       '<div class="status-line"><span>Alerts</span><span>Not configured for live data</span></div></section></div>' + gasReferencePanel() +
@@ -242,6 +249,7 @@
     const pageRows = filtered.slice(ui.historyPage * pageSize, (ui.historyPage + 1) * pageSize);
     const rows = pageRows.map(function (item) {
       return "<tr><td>" + escapeHtml(item.id) + "</td><td>" + escapeHtml(time(item.timestamp)) + "</td><td>" +
+        escapeHtml(time(item.lastSeenAt || item.timestamp)) + "</td><td>" +
         escapeHtml(item.deviceId) + "</td><td>" + escapeHtml(item.sensorCode) + "</td><td>" + escapeHtml(fmt(item.value, 2)) +
         "</td><td>" + escapeHtml(item.unit) + "</td><td>" + badge(item.status) + '</td><td class="demo-label">' + item.source + "</td></tr>";
     }).join("");
@@ -255,8 +263,8 @@
       '<label class="field">Date<input id="history-date" type="date" value="' + escapeHtml(f.date) + '"></label>' +
       '<label class="field">Time<input id="history-time" type="time" value="' + escapeHtml(f.time) + '"></label>' +
       '<button class="button" data-action="clear-history-filters">Clear filters</button><button class="button primary" data-action="export">Export CSV</button></div></div>' +
-      '<div class="table-wrap"><table><thead><tr><th>Record ID</th><th>Timestamp</th><th>Device</th><th>Sensor</th><th>Value</th><th>Unit</th><th>Status</th><th>Source</th></tr></thead><tbody>' +
-      (rows || '<tr><td colspan="8">No telemetry matches the selected filters.</td></tr>') + '</tbody></table></div>' +
+      '<div class="table-wrap"><table><thead><tr><th>Record ID</th><th>Snapshot started</th><th>Last confirmed unchanged</th><th>Device</th><th>Sensor</th><th>Value</th><th>Unit</th><th>Status</th><th>Source</th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="9">No telemetry matches the selected filters.</td></tr>') + '</tbody></table></div>' +
       '<div class="pagination"><span>Page ' + (ui.historyPage + 1) + ' of ' + pages + '</span><div class="controls"><button class="button" data-action="history-prev" ' +
       (ui.historyPage === 0 ? "disabled" : "") + '>Previous</button><button class="button" data-action="history-next" ' +
       (ui.historyPage >= pages - 1 ? "disabled" : "") + '>Next</button></div></div></section>' +
@@ -322,9 +330,9 @@
         (!f.time || localTimeKey(record.timestamp) === f.time) &&
         (f.device === "all" || record.deviceId === f.device);
     });
-    const headers = ["Record ID", "Device ID", "Sensor code", "Value", "Unit", "Status", "Timestamp", "Data source"];
+    const headers = ["Record ID", "Device ID", "Sensor code", "Value", "Unit", "Status", "Snapshot started", "Last confirmed unchanged", "Data source"];
     const csv = [headers].concat(rows.map(function (r) {
-      return [r.id, r.deviceId, r.sensorCode, r.value, r.unit, r.status, r.timestamp, r.source];
+      return [r.id, r.deviceId, r.sensorCode, r.value, r.unit, r.status, r.timestamp, r.lastSeenAt || r.timestamp, r.source];
     })).map(function (row) {
       return row.map(function (cell) { return '"' + String(cell).replace(/"/g, '""') + '"'; }).join(",");
     }).join("\r\n");
