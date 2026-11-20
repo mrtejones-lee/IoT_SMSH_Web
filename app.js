@@ -8,13 +8,13 @@
   const periods = { "1m": 60000, "5m": 300000, "15m": 900000, "30m": 1800000, "1h": 3600000 };
   const ui = {
     period: "5m",
-    selectedSeries: ["HR", "CO"],
+    selectedSeries: ["CH4", "CO"],
     historyPage: 0,
     historyFilter: { sensor: "all", status: "all", date: "", time: "", device: "all" },
     alertFilter: { severity: "all", sensor: "all", date: "", time: "", device: "all" },
     minerSearch: "",
     deviceDetails: false,
-    thresholdSensor: "H2S"
+    thresholdSensor: "CH4"
   };
 
   function state() { return engine.getState(); }
@@ -44,9 +44,11 @@
   function badge(status) { return '<span class="status ' + statusClass(status) + '">' + escapeHtml(status) + "</span>"; }
   function reading(code, digits) {
     const item = state().readings[code];
-    return item ? fmt(item.value, digits) + " <small>" + escapeHtml(item.unit) + "</small>" : "--";
+    return item && item.value != null
+      ? fmt(item.value, digits) + " <small>" + escapeHtml(item.unit) + "</small>"
+      : '-- <small>' + escapeHtml(item ? item.unit : "") + "</small>";
   }
-  function liveSensors() { return engine.config().filter(function (sensor) { return ["H2S", "CO", "LPG", "CO2", "HR"].includes(sensor.code); }); }
+  function liveSensors() { return engine.config(); }
   function sensorByCode(code) { return engine.config().find(function (sensor) { return sensor.code === code; }); }
 
   function chart(code, period) {
@@ -55,7 +57,7 @@
     const records = state().history.filter(function (record) {
       return record.sensorCode === code && new Date(record.timestamp).getTime() >= cutoff;
     }).slice().reverse().slice(-60);
-    if (!records.length) return '<div class="empty">Waiting for simulated samples</div>';
+    if (!records.length) return '<div class="empty">Waiting for ESP32 telemetry</div>';
     const values = records.map(function (item) { return Number(item.value); });
     const min = Math.min.apply(null, values);
     const max = Math.max.apply(null, values);
@@ -73,7 +75,7 @@
   function sensorCard(sensor, includeChart) {
     const item = state().readings[sensor.code];
     return '<article class="sensor-card"><div class="sensor-top"><div><h3 class="sensor-name">' + escapeHtml(sensor.name) +
-      '</h3><span class="sensor-code">' + escapeHtml(sensor.code) + '</span></div>' + badge(item.available ? item.status : "Offline") +
+      '</h3><span class="sensor-code">' + escapeHtml(sensor.short || sensor.code) + ' · ' + escapeHtml(sensor.code) + '</span></div>' + badge(item.available ? item.status : "No data") +
       '</div><div class="reading">' + reading(sensor.code, sensor.code === "BATTERY" || sensor.code === "CURRENT" ? 2 : 0) +
       '</div><div class="small-meta">Updated ' + escapeHtml(shortTime(item.updatedAt)) + '</div>' +
       (includeChart ? chart(sensor.code) : "") + "</article>";
@@ -85,178 +87,126 @@
   }
 
   function metrics() {
-    const online = state().deviceOnline ? 1 : 0;
-    const activeAlerts = state().alerts.filter(function (alert) { return !alert.resolved; }).length;
+    const s = state();
+    const online = s.deviceOnline ? 1 : 0;
     return '<section class="metrics" aria-label="System summary">' +
-      metric("Registered helmets", "1", "HELMET-001 · demo device") +
-      metric("Online helmets", String(online), online ? "Connected over simulated Wi-Fi" : "Device offline") +
-      metric("Active alerts", String(activeAlerts), activeAlerts ? "Requires review" : "No active conditions") +
-      metric("Registered participants", "1", "Anonymized demo record") + "</section>";
+      metric("Registered helmets", "1", "HELMET-001 · ESP32") +
+      metric("Recently reporting", String(online), online ? "Telemetry received recently" : "No recent telemetry") +
+      metric("Active alerts", "--", "No alert table configured") +
+      metric("Telemetry rows loaded", String(s.packets), "Most recent records from Supabase") + "</section>";
   }
   function metric(label, value, sub) {
     return '<article class="metric"><div class="metric-label">' + label + '</div><div class="metric-value">' + value +
       '</div><div class="metric-sub">' + escapeHtml(sub) + "</div></article>";
   }
 
-  function demoControls() {
+  function liveControls() {
     const s = state();
-    return '<section class="panel"><div class="panel-head"><h2>Demo controls</h2><span class="demo-label">SIMULATION ONLY</span></div><div class="panel-body">' +
-      '<div class="status-line"><span>Simulation</span>' + badge(s.running ? "Normal" : "Offline") + '</div>' +
-      '<div class="status-line"><span>Update interval</span><span>' + s.intervalMs / 1000 + ' seconds</span></div>' +
-      '<div class="status-line"><span>Generated telemetry packets</span><span>' + s.packets + '</span></div>' +
-      '<div class="status-line"><span>Last generated reading</span><span>' + escapeHtml(shortTime(s.lastTelemetry)) + '</span></div>' +
-      '<div class="panel-body"><div class="controls">' +
-      '<button class="button primary" data-action="' + (s.running ? "pause" : "start") + '">' + (s.running ? "Pause simulation" : "Resume simulation") + '</button>' +
-      '<button class="button" data-action="reset">Reset</button><button class="button" data-action="warning">Generate warning</button>' +
-      '<button class="button danger" data-action="critical">Generate critical</button></div>' +
-      '<div class="form-row" style="margin-top:12px"><label class="field">Update interval (seconds)<input id="interval" type="number" min="1" max="60" value="' + s.intervalMs / 1000 + '"></label>' +
-      '<button class="button" data-action="interval">Apply interval</button>' +
-      '<label class="field">Demo sensor<select id="demo-sensor">' + liveSensors().map(function (sensor) { return '<option value="' + sensor.code + '">' + escapeHtml(sensor.name) + '</option>'; }).join("") + '</select></label>' +
-      '</div><p class="small-meta">Values are simulated demonstration data, not certified safety or medical measurements.</p></div></div></section>';
+    return '<section class="panel"><div class="panel-head"><h2>Database connection</h2><span class="demo-label">LIVE · ESP32</span></div><div class="panel-body">' +
+      '<div class="status-line"><span>Supabase REST API</span>' + badge(s.connectionStatus === "connected" ? "Connected" : s.connectionStatus) + '</div>' +
+      '<div class="status-line"><span>Refresh interval</span><span>' + s.intervalMs / 1000 + ' seconds</span></div>' +
+      '<div class="status-line"><span>ESP32 telemetry rows loaded</span><span>' + s.packets + '</span></div>' +
+      '<div class="status-line"><span>Latest telemetry</span><span>' + escapeHtml(time(s.lastTelemetry)) + '</span></div>' +
+      '<div class="status-line"><span>Last database check</span><span>' + escapeHtml(shortTime(s.lastCheckedAt)) + '</span></div>' +
+      (s.error ? '<p class="error-message" role="alert">' + escapeHtml(s.error) + '</p>' : "") +
+      '<div class="panel-body"><button class="button primary" data-action="refresh">Refresh now</button>' +
+      '<p class="small-meta">Read-only public access is limited by Supabase RLS to HELMET-001 ESP32 telemetry. Values are raw, uncalibrated sensor readings.</p></div></div></section>';
   }
 
   function overview() {
     const s = state();
-    return header("Overview", "Operational snapshot for the simulated Minewatch helmet. Demo readings update every " + s.intervalMs / 1000 + " seconds.") +
-      '<div class="toolbar"><h2 class="section-title">System snapshot</h2><span class="demo-label">DEMO DATA – SIMULATED</span></div>' +
+    return header("Overview", "Live ESP32 telemetry from Supabase. The dashboard checks for new readings every " + s.intervalMs / 1000 + " seconds.") +
+      '<div class="toolbar"><h2 class="section-title">System snapshot</h2><span class="demo-label">LIVE DATA – ESP32</span></div>' +
       metrics() + '<div class="content-grid"><section class="panel"><div class="panel-head"><h2>Latest telemetry</h2><span>' + escapeHtml(time(s.lastTelemetry)) + '</span></div>' +
       '<div class="panel-body sensor-grid">' + liveSensors().map(function (sensor) { return sensorCard(sensor, false); }).join("") + '</div></section>' +
       '<section class="panel"><div class="panel-head"><h2>Connection status</h2><span>HELMET-001</span></div>' +
-      '<div class="status-line"><span>Device connection</span>' + badge(s.deviceOnline ? "Normal" : "Offline") + '</div>' +
-      '<div class="status-line"><span>Wi-Fi / operating mode</span><span>Wi-Fi · DEMO</span></div>' +
-      '<div class="status-line"><span>Last device heartbeat</span><span>' + escapeHtml(time(s.lastHeartbeat)) + '</span></div>' +
-      '<div class="status-line"><span>Battery condition</span>' + badge(s.readings.BATTERY_PERCENT.value <= 20 ? "Warning" : "Normal") + '</div>' +
-      '<div class="status-line"><span>Battery level</span><span>' + fmt(s.readings.BATTERY_PERCENT.value, 1) + '%</span></div>' +
-      '<div class="status-line"><span>Latest alert</span><span>' + escapeHtml(s.alerts[0] ? s.alerts[0].severity + " · " + s.alerts[0].sensor : "None") + '</span></div></section></div>' +
-      '<div class="split">' + demoControls() + '<section class="panel"><div class="panel-head"><h2>Helmet details</h2><span>Minewatch Helmet 001</span></div>' +
-      '<div class="status-line"><span>Helmet / miner ID</span><span>HELMET-001 / MINER-001</span></div>' +
-      '<div class="status-line"><span>Connection / firmware</span><span>Wi-Fi / DEMO-1.0</span></div>' +
-      '<div class="status-line"><span>ADS1115 ADC</span><span>16-bit · analog acquisition</span></div>' +
-      '<div class="status-line"><span>Power</span><span>' + fmt(s.readings.BATTERY.value, 2) + ' V · ' + fmt(s.readings.CURRENT.value, 2) + ' A · ' + fmt(s.readings.BATTERY.value * s.readings.CURRENT.value, 2) + ' W</span></div>' +
-      '<p class="disclaimer">Simulation thresholds are configurable demonstration parameters, not official mining limits or medical guidance.</p></section></div>' +
-      '<p class="disclaimer">Research prototype only. This dashboard is not a certified safety system and does not guarantee miner safety.</p>';
+      '<div class="status-line"><span>Database connection</span>' + badge(s.connectionStatus === "connected" ? "Connected" : s.connectionStatus) + '</div>' +
+      '<div class="status-line"><span>Telemetry freshness</span>' + badge(s.deviceOnline ? "Recent" : "Stale / none") + '</div>' +
+      '<div class="status-line"><span>Last telemetry received</span><span>' + escapeHtml(time(s.lastHeartbeat)) + '</span></div>' +
+      '<div class="status-line"><span>Data source</span><span>ESP32 · Supabase</span></div>' +
+      '<div class="status-line"><span>Battery readings</span><span>Not sent by current firmware</span></div>' +
+      '<div class="status-line"><span>Alerts</span><span>Not configured for live data</span></div></section></div>' +
+      '<div class="split">' + liveControls() + '<section class="panel"><div class="panel-head"><h2>Helmet details</h2><span>Minewatch Helmet 001</span></div>' +
+      '<div class="status-line"><span>Helmet ID</span><span>HELMET-001</span></div>' +
+      '<div class="status-line"><span>Participant</span><span>MINER-001 · anonymized</span></div>' +
+      '<div class="status-line"><span>Connection / firmware</span><span>Wi-Fi · firmware not reported</span></div>' +
+      '<div class="status-line"><span>ADC</span><span>ESP32 built-in ADC · raw counts</span></div>' +
+      '<div class="status-line"><span>Power / heart rate</span><span>Not reported by current firmware</span></div>' +
+      '<p class="disclaimer">Gas readings are raw ADC counts, not calibrated gas concentrations. This is not a certified safety system.</p></section></div>';
   }
 
   function monitoring() {
     const config = engine.config();
-    const env = config.filter(function (sensor) { return ["H2S", "CO", "LPG", "CO2"].includes(sensor.code); });
-    const power = config.filter(function (sensor) { return ["BATTERY", "CURRENT"].includes(sensor.code); });
     const s = state();
-    return header("Live monitoring", "Simulated environmental, physiological, and power telemetry. Measurements are for demonstration only.") +
-      '<div class="toolbar"><h2 class="section-title">Environmental monitoring</h2><span class="demo-label">DEMO DATA – SIMULATED</span></div>' +
-      '<div class="sensor-grid">' + env.map(function (sensor) { return sensorCard(sensor, true); }).join("") + '</div>' +
-      '<div class="toolbar" style="margin-top:22px"><h2 class="section-title">Physiological monitoring</h2></div>' +
-      '<div class="sensor-grid">' + sensorCard(sensorByCode("HR"), true) + '</div>' +
-      '<div class="toolbar" style="margin-top:22px"><h2 class="section-title">Battery and power monitoring</h2></div>' +
-      '<div class="sensor-grid">' + power.map(function (sensor) { return sensorCard(sensor, false); }).join("") +
-      '<article class="sensor-card"><div class="sensor-name">Estimated battery</div><div class="reading">' + fmt(s.readings.BATTERY_PERCENT.value, 1) +
-      ' <small>%</small></div><div class="small-meta">Power ' + fmt(s.readings.BATTERY.value * s.readings.CURRENT.value, 2) + ' W · simulated</div>' +
-      badge(s.readings.BATTERY_PERCENT.value <= 20 ? "Warning" : "Normal") + '</article></div>' +
+    return header("Live monitoring", "ESP32 environmental sensor readings retrieved from Supabase. Values are raw, uncalibrated measurements.") +
+      '<div class="toolbar"><h2 class="section-title">Environmental monitoring</h2><span class="demo-label">LIVE DATA – ESP32</span></div>' +
+      '<div class="sensor-grid">' + config.map(function (sensor) { return sensorCard(sensor, true); }).join("") + '</div>' +
+      '<div class="toolbar" style="margin-top:22px"><h2 class="section-title">Other telemetry</h2></div>' +
+      '<section class="panel"><div class="status-line"><span>Heart rate</span><span>Not sent by current ESP32 firmware</span></div>' +
+      '<div class="status-line"><span>Battery voltage / current / charge</span><span>Not sent by current ESP32 firmware</span></div>' +
+      '<div class="status-line"><span>ADS1115</span><span>Not used; these pins use the ESP32 built-in ADC</span></div></section>' +
       '<section class="panel" style="margin-top:14px"><div class="panel-head"><h2>Combined historical trend</h2><span>Last ' + escapeHtml(ui.period) + '</span></div><div class="panel-body">' +
       '<div class="form-row"><div class="tab-row">' + Object.keys(periods).map(function (period) {
         return '<button class="button ' + (ui.period === period ? "selected" : "") + '" data-period="' + period + '">' + period + '</button>';
-      }).join("") + '</div><div class="tab-row">' + config.filter(function (sensor) { return sensor.code !== "BATTERY_PERCENT"; }).map(function (sensor) {
+      }).join("") + '</div><div class="tab-row">' + config.map(function (sensor) {
         return '<button class="button ' + (ui.selectedSeries.includes(sensor.code) ? "selected" : "") + '" data-series="' + sensor.code + '">' + escapeHtml(sensor.code) + '</button>';
       }).join("") + '</div></div>' +
       '<div class="sensor-grid" style="margin-top:12px">' + ui.selectedSeries.map(function (code) {
         const sensor = sensorByCode(code);
         return sensor ? '<div class="hardware"><strong>' + escapeHtml(sensor.name) + ' · ' + escapeHtml(sensor.unit) + '</strong>' + chart(code, ui.period) + '</div>' : "";
       }).join("") + '</div></div></section>' +
-      '<div class="split">' + demoControls() + '<section class="panel"><div class="panel-head"><h2>Supporting hardware</h2><span>Not an additional sensor</span></div><div class="panel-body hardware-grid">' +
-      '<div class="hardware"><strong>ADS1115</strong><span>16-bit ADC · analog-to-digital conversion</span></div>' +
-      '<div class="hardware"><strong>Active analog channels</strong><span>' + (s.deviceOnline ? "4 simulated sensor channels" : "Unavailable while device is offline") + '</span></div>' +
-      '<div class="hardware"><strong>Acquisition status</strong><span>' + (s.deviceOnline ? "Simulated acquisition active" : "Device offline") + '</span></div>' +
-      '<div class="hardware"><strong>Battery module</strong><span>Voltage and current monitoring</span></div>' +
-      '</div></section></div>';
+      '<div class="split">' + liveControls() + '<section class="panel"><div class="panel-head"><h2>Hardware and data notes</h2><span>HELMET-001</span></div>' +
+      '<div class="status-line"><span>Analog acquisition</span><span>ESP32 built-in ADC · four channels</span></div>' +
+      '<div class="status-line"><span>MQ-4</span><span>Methane module · raw ADC counts</span></div>' +
+      '<div class="status-line"><span>MG811</span><span>Raw ADC counts (not ppm)</span></div>' +
+      '<div class="status-line"><span>Battery / heart rate</span><span>Not included in current uploads</span></div>' +
+      '<p class="disclaimer">Sensor modules require suitable calibration before interpreting readings as gas concentration.</p></section></div>';
   }
 
   function devices() {
     const s = state();
     const components = [
-      ["MQ-136", "H₂S environmental sensor", "H2S"], ["MQ-7", "CO environmental sensor", "CO"],
-      ["MQ-6", "LPG / combustible gas sensor", "LPG"], ["MG811", "CO₂ demonstration measurement", "CO2"],
-      ["Ear-clip sensor", "Heart-rate sensor", "HR"], ["ADS1115", "16-bit ADC · supports analog acquisition", null],
-      ["Battery module", "Voltage / current monitoring", "BATTERY"]
+      ["MQ-4", "Methane sensor · raw ADC counts", "CH4"], ["MQ-7", "Carbon monoxide sensor · raw ADC counts", "CO"],
+      ["MQ-6", "LPG / combustible gas sensor · raw ADC counts", "LPG"], ["MG811", "Carbon dioxide sensor · raw ADC counts", "CO2"],
+      ["Ear-clip sensor", "Heart-rate sensor · not sent", null], ["ADS1115", "Not used; ESP32 built-in ADC is used", null],
+      ["Battery module", "Voltage/current · not sent", null]
     ];
-    return header("Helmet devices", "Inspect the anonymized demo helmet, its connection, telemetry, and supporting hardware.") +
-      '<div class="toolbar"><h2 class="section-title">Registered device</h2><span class="demo-label">DEMO DEVICE</span></div>' +
-      '<section class="panel"><div class="table-wrap"><table><thead><tr><th>Helmet ID</th><th>Assigned miner</th><th>Connection</th><th>Battery</th><th>Last heartbeat</th><th>Firmware</th><th>Mode</th></tr></thead><tbody><tr>' +
-      '<td>HELMET-001</td><td>MINER-001</td><td>' + badge(s.deviceOnline ? "Normal" : "Offline") + '</td><td>' + fmt(s.readings.BATTERY_PERCENT.value, 1) +
-      '%</td><td>' + escapeHtml(time(s.lastHeartbeat)) + '</td><td>DEMO-1.0</td><td>SIMULATED</td></tr></tbody></table></div>' +
-      '<div class="panel-body"><div class="controls"><button class="button ' + (s.deviceOnline ? "danger" : "primary") + '" data-action="device-toggle">' +
-      (s.deviceOnline ? "Simulate helmet disconnect" : "Restore device connection") + '</button><button class="button" data-action="toggle-details">' +
-      (ui.deviceDetails ? "Hide details" : "Show device details") + '</button></div>' +
+    return header("Helmet devices", "Inspect the anonymized helmet record and the hardware currently represented in live telemetry.") +
+      '<div class="toolbar"><h2 class="section-title">Registered device</h2><span class="demo-label">LIVE · ESP32</span></div>' +
+      '<section class="panel"><div class="table-wrap"><table><thead><tr><th>Helmet ID</th><th>Assigned miner</th><th>Telemetry</th><th>Battery</th><th>Last received</th><th>Firmware</th><th>Mode</th></tr></thead><tbody><tr>' +
+      '<td>HELMET-001</td><td>MINER-001</td><td>' + badge(s.deviceOnline ? "Recent" : "Stale / none") + '</td><td>Not reported</td>' +
+      '<td>' + escapeHtml(time(s.lastHeartbeat)) + '</td><td>Not reported</td><td>ESP32 · LIVE</td></tr></tbody></table></div>' +
+      '<div class="panel-body"><div class="controls"><button class="button" data-action="toggle-details">' +
+      (ui.deviceDetails ? "Hide details" : "Show device details") + '</button><button class="button primary" data-action="refresh">Refresh telemetry</button></div>' +
       (ui.deviceDetails ? '<div class="hardware-grid" style="margin-top:14px">' + components.map(function (component) {
         const item = component[2] ? s.readings[component[2]] : null;
-        const control = component[2] && component[2] !== "BATTERY" ?
-          '<button class="button" data-action="sensor-toggle" data-sensor="' + component[2] + '">' + (item.available ? "Disconnect" : "Reconnect") + '</button>' : "";
         return '<article class="hardware"><strong>' + component[0] + '</strong><span>' + component[1] + '</span>' +
-          (item ? '<div class="small-meta">' + (item.available ? fmt(item.value, 1) + " " + escapeHtml(item.unit) : "No signal") + " · " + escapeHtml(item.status) + '</div>' : "") +
-          '<div class="table-actions" style="margin-top:8px">' + (item ? badge(item.available ? item.status : "Offline") : '<span class="status system">Supporting component</span>') + control + '</div></article>';
-      }).join("") + '</div><p class="small-meta">Last telemetry received: ' + escapeHtml(time(s.lastTelemetry)) + '</p>' +
-      '<div class="status-line"><span>Battery condition</span><span>' + fmt(s.readings.BATTERY_PERCENT.value, 1) + '% · ' +
-      fmt(s.readings.BATTERY.value, 2) + ' V · ' + fmt(s.readings.CURRENT.value, 2) + ' A · ' +
-      fmt(s.readings.BATTERY.value * s.readings.CURRENT.value, 2) + ' W</span></div>' : "") +
-      '</div></section><p class="disclaimer">All device status and readings on this page are simulated. No hardware connection is claimed.</p>';
+          (item ? '<div class="small-meta">' + reading(component[2]) + '</div>' + badge(item.available ? item.status : "No data") : '<div class="small-meta">No live reading configured</div>') + '</article>';
+      }).join("") + '</div><p class="small-meta">Latest telemetry received: ' + escapeHtml(time(s.lastTelemetry)) + '</p>' : "") +
+      '</div></section><p class="disclaimer">Device connectivity is inferred from recent database telemetry; no direct Wi-Fi status or firmware information is uploaded.</p>';
   }
 
   function miners() {
     const s = state();
     const query = ui.minerSearch.trim().toLowerCase();
     const matches = ["MINER-001", "HELMET-001", "active"].some(function (word) { return word.toLowerCase().includes(query); });
-    return header("Miners", "Anonymized participant roster for the simulated monitoring session.") +
+    return header("Miners", "Anonymized participant roster associated with the live telemetry device.") +
       '<section class="panel"><div class="panel-head"><h2>Demo participants</h2><span>1 anonymized record</span></div><div class="panel-body">' +
       '<label class="field">Search participants<input id="miner-search" class="search" type="search" placeholder="Search ID, helmet, or status" value="' + escapeHtml(ui.minerSearch) + '"></label></div>' +
       (matches ? '<div class="table-wrap"><table><thead><tr><th>Participant ID</th><th>Assigned helmet</th><th>Monitoring status</th><th>Last communication</th><th>Latest heart rate</th><th>Battery</th></tr></thead><tbody><tr><td>MINER-001</td><td>HELMET-001</td><td>' +
-        badge(s.deviceOnline ? "Normal" : "Offline") + '</td><td>' + escapeHtml(time(s.lastHeartbeat)) + '</td><td>' + reading("HR") + '</td><td>' + fmt(s.readings.BATTERY_PERCENT.value, 1) + '%</td></tr></tbody></table></div>' :
+        badge(s.deviceOnline ? "Recent" : "Stale / none") + '</td><td>' + escapeHtml(time(s.lastHeartbeat)) + '</td><td>Not reported</td><td>Not reported</td></tr></tbody></table></div>' :
         '<div class="empty">No anonymized participant matches this search.</div>') + '</section>' +
-      '<p class="disclaimer">Demo data only. No real personal or participant records are stored.</p>';
+      '<p class="disclaimer">MINER-001 is an anonymized demo label. Heart rate and battery telemetry are not currently uploaded.</p>';
   }
 
   function alerts() {
     const s = state();
-    const filtered = s.alerts.filter(function (item) {
-      const f = ui.alertFilter;
-      return (f.severity === "all" || item.severity.toLowerCase() === f.severity) &&
-        (f.sensor === "all" || item.code === f.sensor) &&
-        (!f.date || localDateKey(item.timestamp) === f.date) &&
-        (!f.time || localTimeKey(item.timestamp) === f.time) &&
-        (f.device === "all" || item.deviceId === f.device);
-    });
-    const sensorOptions = '<option value="all">All sensors</option>' + engine.config().map(function (sensor) {
-      return '<option value="' + sensor.code + '"' + (ui.alertFilter.sensor === sensor.code ? " selected" : "") + '>' + escapeHtml(sensor.name) + '</option>';
-    }).join("");
-    const rows = filtered.map(function (item) {
-      return '<div class="alert-row"><div>' + badge(item.severity) + '<div class="small-meta">' + escapeHtml(item.id) + '</div></div>' +
-        '<div><strong>' + escapeHtml(item.sensor) + '</strong><div class="alert-detail">' + escapeHtml(item.description) + '</div>' +
-        '<div class="alert-detail">' + escapeHtml(item.deviceId) + ' · ' + escapeHtml((typeof item.reading === "number" ? fmt(item.reading, 1) : item.reading) + " " + item.unit) +
-        ' · threshold ' + escapeHtml(item.threshold) + ' · ' + escapeHtml(time(item.timestamp)) + '</div></div>' +
-        '<div class="table-actions"><span class="status ' + (item.resolved ? "system" : item.acknowledged ? "normal" : "warning") + '">' +
-        (item.resolved ? "Resolved" : item.acknowledged ? "Acknowledged" : "Unacknowledged") + '</span>' +
-        (!item.acknowledged ? '<button class="button" data-action="ack" data-id="' + escapeHtml(item.id) + '">Acknowledge</button>' : "") +
-        (!item.resolved ? '<button class="button" data-action="resolve" data-id="' + escapeHtml(item.id) + '">Resolve</button>' : "") + '</div></div>';
-    }).join("");
-    return header("Alerts", "Review simulated threshold and connectivity events. Thresholds are configurable demo parameters, not official exposure or medical limits.") +
-      '<section class="panel"><div class="panel-head"><h2>Alert history</h2><span>' + filtered.length + ' matching · ' + s.alerts.filter(function (a) { return !a.resolved; }).length + ' active</span></div>' +
-      '<div class="panel-body"><div class="form-row"><label class="field">Severity<select id="alert-severity"><option value="all">All severities</option>' +
-      ["warning", "critical"].map(function (level) { return '<option value="' + level + '"' + (ui.alertFilter.severity === level ? " selected" : "") + '>' + level + '</option>'; }).join("") +
-      '</select></label><label class="field">Sensor<select id="alert-sensor">' + sensorOptions + '</select></label>' +
-      '<label class="field">Device<select id="alert-device"><option value="all">All devices</option><option value="HELMET-001"' + (ui.alertFilter.device === "HELMET-001" ? " selected" : "") + '>HELMET-001</option></select></label>' +
-      '<label class="field">Date<input id="alert-date" type="date" value="' + escapeHtml(ui.alertFilter.date) + '"></label>' +
-      '<label class="field">Time<input id="alert-time" type="time" value="' + escapeHtml(ui.alertFilter.time) + '"></label>' +
-      '<button class="button" data-action="clear-alert-filters">Clear filters</button></div><div class="form-row" style="margin-top:14px">' +
-      '<label class="field">Configure demo thresholds<select id="threshold-sensor">' + engine.config().filter(function (sensor) {
-        return !["BATTERY", "CURRENT"].includes(sensor.code);
-      }).map(function (sensor) {
-        return '<option value="' + sensor.code + '"' + (ui.thresholdSensor === sensor.code ? " selected" : "") + '>' + escapeHtml(sensor.name) + '</option>';
-      }).join("") + '</select></label>' +
-      (function () {
-        const selected = sensorByCode(ui.thresholdSensor) || sensorByCode("H2S");
-        return '<label class="field">Warning (' + escapeHtml(selected.unit) + ')<input id="warning-threshold" type="number" step="any" value="' + selected.warning + '"></label>' +
-          '<label class="field">Critical (' + escapeHtml(selected.unit) + ')<input id="critical-threshold" type="number" step="any" value="' + selected.critical + '"></label>';
-      })() + '<button class="button" data-action="apply-threshold">Apply thresholds</button><span class="small-meta">Demonstration parameters only.</span></div></div>' +
-      (rows || '<div class="empty">' + (s.alerts.length ? "No alerts match those filters." : "No alerts yet. Use demo controls to generate a warning or critical example.") + '</div>') +
-      '</section><p class="disclaimer">Alert status reflects simulated data only. Do not use for real-world safety decisions.</p>';
+    return header("Alerts", "The current Supabase telemetry table stores sensor readings, not alert records or calibrated thresholds.") +
+      '<section class="panel"><div class="panel-head"><h2>Live alert status</h2><span>Not configured</span></div>' +
+      '<div class="empty"><div class="empty-inner"><h3>No live alert stream is configured</h3>' +
+      '<p>Raw ADC counts are not calibrated concentrations, so the dashboard does not infer warning or critical gas levels. Add a validated alert pipeline and policy before displaying operational alerts.</p>' +
+      '</div></div><div class="status-line"><span>Latest database check</span><span>' + escapeHtml(time(s.lastCheckedAt)) + '</span></div></section>' +
+      '<p class="disclaimer">Do not use this prototype as a certified safety system.</p>';
   }
 
   function history() {
@@ -278,12 +228,12 @@
         escapeHtml(item.deviceId) + "</td><td>" + escapeHtml(item.sensorCode) + "</td><td>" + escapeHtml(fmt(item.value, 2)) +
         "</td><td>" + escapeHtml(item.unit) + "</td><td>" + badge(item.status) + '</td><td class="demo-label">' + item.source + "</td></tr>";
     }).join("");
-    return header("Historical data", "Session telemetry generated by the mock sensor provider. Records remain available while this page session is open.") +
-      '<section class="panel"><div class="panel-head"><h2>Telemetry records</h2><span>' + filtered.length + ' matching records · capped at 5,000</span></div>' +
+    return header("Historical data", "ESP32 sensor records queried from Supabase. Each refresh loads the newest records available to this public dashboard.") +
+      '<section class="panel"><div class="panel-head"><h2>Telemetry records</h2><span>' + filtered.length + ' matching of the newest 5,000 rows loaded from Supabase</span></div>' +
       '<div class="panel-body"><div class="form-row"><label class="field">Sensor<select id="history-sensor"><option value="all">All sensors</option>' +
       engine.config().map(function (sensor) { return '<option value="' + sensor.code + '"' + (f.sensor === sensor.code ? " selected" : "") + '>' + escapeHtml(sensor.name) + '</option>'; }).join("") +
       '</select></label><label class="field">Status<select id="history-status"><option value="all">All statuses</option>' +
-      ["normal", "warning", "critical", "offline"].map(function (status) { return '<option value="' + status + '"' + (f.status === status ? " selected" : "") + '>' + status + '</option>'; }).join("") +
+      ["unrated"].map(function (status) { return '<option value="' + status + '"' + (f.status === status ? " selected" : "") + '>' + status + '</option>'; }).join("") +
       '</select></label><label class="field">Device<select id="history-device"><option value="all">All devices</option><option value="HELMET-001"' + (f.device === "HELMET-001" ? " selected" : "") + '>HELMET-001</option></select></label>' +
       '<label class="field">Date<input id="history-date" type="date" value="' + escapeHtml(f.date) + '"></label>' +
       '<label class="field">Time<input id="history-time" type="time" value="' + escapeHtml(f.time) + '"></label>' +
@@ -316,8 +266,11 @@
     });
     const active = state().alerts.filter(function (alert) { return !alert.resolved; }).length;
     document.querySelector("#nav-alert-count").textContent = active ? String(active) : "";
-    document.querySelector("#connection-text").textContent = state().deviceOnline ? "Device online" : "Device offline";
-    document.querySelector(".dot").classList.toggle("offline", !state().deviceOnline);
+    const connected = state().connectionStatus === "connected";
+    document.querySelector("#connection-text").textContent = connected ? "Database connected" :
+      state().connectionStatus === "checking" ? "Checking database" : "Database unavailable";
+    document.querySelector(".dot").classList.toggle("offline", !connected);
+    document.querySelector("#source-pill").textContent = "LIVE DATA · ESP32";
     app.innerHTML = page();
     if (preserveCharts) {
       const newCharts = Array.from(app.querySelectorAll("svg.chart"));
@@ -360,7 +313,7 @@
     }).join("\r\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    link.download = "minewatch-simulated-telemetry.csv";
+    link.download = "minewatch-esp32-telemetry.csv";
     link.click();
     window.setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
   }
@@ -383,7 +336,7 @@
     if (seriesButton) {
       const code = seriesButton.dataset.series;
       ui.selectedSeries = ui.selectedSeries.includes(code) ? ui.selectedSeries.filter(function (item) { return item !== code; }) : ui.selectedSeries.concat(code);
-      if (!ui.selectedSeries.length) ui.selectedSeries = ["HR"];
+      if (!ui.selectedSeries.length) ui.selectedSeries = ["CH4"];
       render();
       return;
     }
@@ -391,31 +344,9 @@
     if (!button) return;
     const action = button.dataset.action;
     try {
-      if (action === "pause") engine.pause();
-      else if (action === "start") engine.start();
-      else if (action === "reset") { engine.reset(); toast("Demo simulation reset."); }
-      else if (action === "warning" || action === "critical") {
-        const select = document.querySelector("#demo-sensor");
-        engine.simulateAbnormal(action === "warning" ? "Warning" : "Critical", select ? select.value : "CO");
-        toast("Simulated " + action + " reading generated.");
-      } else if (action === "interval") {
-        const input = document.querySelector("#interval");
-        engine.setIntervalMs(Number(input.value) * 1000);
-        toast("Simulation interval updated.");
-      } else if (action === "device-toggle") engine.setDeviceOnline(!state().deviceOnline);
+      if (action === "refresh") engine.refresh();
       else if (action === "toggle-details") { ui.deviceDetails = !ui.deviceDetails; render(); }
-      else if (action === "sensor-toggle") {
-        const code = button.dataset.sensor;
-        engine.setSensorAvailable(code, !state().readings[code].available);
-      } else if (action === "ack") engine.acknowledge(button.dataset.id);
-      else if (action === "resolve") engine.resolve(button.dataset.id);
-      else if (action === "apply-threshold") {
-        engine.setThreshold(ui.thresholdSensor, document.querySelector("#warning-threshold").value, document.querySelector("#critical-threshold").value);
-        toast("Demo thresholds updated.");
-      }
-      else if (action === "clear-alert-filters") {
-        ui.alertFilter = { severity: "all", sensor: "all", date: "", time: "", device: "all" }; render();
-      } else if (action === "clear-history-filters") {
+      else if (action === "clear-history-filters") {
         ui.historyFilter = { sensor: "all", status: "all", date: "", time: "", device: "all" }; ui.historyPage = 0; render();
       } else if (action === "export") downloadCsv();
       else if (action === "history-prev") { ui.historyPage = Math.max(0, ui.historyPage - 1); render(); }

@@ -78,7 +78,11 @@ h2,h3,p { overflow-wrap: anywhere; }
 .critical { color: var(--red); }
 .offline { color: #a0a9a2; }
 .system { color: var(--blue); }
+.connected,.recent { color: var(--green); }
+.checking,.configuration,.unrated,.no { color: #a0a9a2; }
+.error,.stale { color: var(--red); }
 .small-meta { margin-top: 8px; color: var(--muted); font-size: 10px; }
+.error-message { padding: 10px 12px; border-left: 2px solid var(--red); background: rgba(239,118,112,.08); color: #ffaaa5; font-size: 11px; }
 .chart { display: block; width: 100%; height: 76px; margin-top: 9px; overflow: visible; }
 .chart-grid { stroke: rgba(235,241,232,.12); stroke-width: 1; }
 .chart-line { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; transition: d .35s ease; }

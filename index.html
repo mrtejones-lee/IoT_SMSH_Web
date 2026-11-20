@@ -16,7 +16,7 @@
       </a>
       <div class="top-meta">
         <time id="clock" aria-label="Current date and time"></time>
-        <span class="demo-pill">DEMO MODE · SIMULATED SENSOR DATA</span>
+        <span class="demo-pill" id="source-pill">LIVE DATA · ESP32</span>
         <span class="connection"><i class="dot"></i><span id="connection-text">Device online</span></span>
         <div class="profile"><span class="avatar">R</span><span>Research console</span></div>
       </div>
@@ -32,12 +32,13 @@
           <a href="#alerts" data-route="alerts"><span class="nav-icon">!</span>Alerts <span class="nav-count" id="nav-alert-count"></span></a>
           <a href="#history" data-route="history"><span class="nav-icon">=</span>Historical data</a>
         </nav>
-        <p class="side-note">Research prototype. Readings are simulated for demonstration and are not certified safety measurements.</p>
+        <p class="side-note">Live database readings are raw sensor data, not calibrated or certified safety measurements.</p>
       </aside>
       <main id="app" tabindex="-1"></main>
     </div>
   </div>
-  <script src="mockSensorEngine.js"></script>
+  <script src="supabase-public-config.js"></script>
+  <script src="supabase-provider.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
