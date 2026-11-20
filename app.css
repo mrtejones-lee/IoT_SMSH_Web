@@ -19,7 +19,7 @@ body {
   font: 14px/1.5 "Segoe UI", sans-serif;
 }
 body::before, body::after { position: fixed; inset: 0; content: ""; pointer-events: none; }
-body::before { z-index: -2; background: url("Pictures/webBG.jpg") center 48% / cover no-repeat; transform: scale(1.015); }
+body::before { z-index: -2; background: url("Pictures/webBG.png") center 48% / cover no-repeat; transform: scale(1.015); }
 body::after { z-index: -1; background: linear-gradient(90deg, rgba(7,12,12,.9), rgba(7,12,12,.7) 48%, rgba(7,12,12,.38)), linear-gradient(0deg, rgba(7,12,12,.72), transparent 70%); }
 button, input, select { color: inherit; font: inherit; }
 button, select { cursor: pointer; }
