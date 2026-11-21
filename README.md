@@ -1,6 +1,6 @@
 # Minewatch | Helmet Monitoring
 
-Minewatch reads real ESP32 gas-sensor telemetry from Supabase and refreshes the latest rows every 10 seconds. The existing mock simulator remains in `mockSensorEngine.js` but is not loaded by the app.
+Minewatch reads real ESP32 gas-sensor and optional pulse-sensor telemetry from Supabase and refreshes the latest rows every 10 seconds. The existing mock simulator remains in `mockSensorEngine.js` but is not loaded by the app.
 
 ## Configure the public dashboard
 
@@ -16,10 +16,11 @@ Minewatch reads real ESP32 gas-sensor telemetry from Supabase and refreshes the 
 
 - The browser queries the Supabase REST API for the newest 5,000 `HELMET-001` ESP32 rows and refreshes every 10 seconds.
 - Database codes map to dashboard labels: `MQ4_ADC` → methane (MQ-4), `MQ7_ADC` → CO (MQ-7), `MQ6_ADC` → LPG (MQ-6), and `MG811_ADC` → CO₂ (MG811). Since these sensors are not calibrated, live readings are marked **NOT CALIBRATED**, remain in **ADC counts**, and are not given safe/warning/critical ratings. ADC zero is not treated as zero gas.
-- The ingestion function inserts a four-row snapshot only when at least one sensor value changes. Identical readings update `received_at` on the existing snapshot instead. Run `supabase/telemetry_last_seen_permission.sql` once to grant the function's service role SELECT and `received_at`-only UPDATE permissions. Redeploy the Edge Function after pulling the code change.
+- `PULSE_BPM` maps to the dashboard's heart-rate reading in bpm. It is optional when no recent beat is detected and is informational only, not a medical measurement.
+- The ingestion function inserts a snapshot when any submitted value changes: four gas rows, plus a pulse row when a fresh BPM is available. Identical submitted readings update `received_at` on the existing rows instead. Run `supabase/telemetry_last_seen_permission.sql` once to grant the function's service role SELECT and `received_at`-only UPDATE permissions. Redeploy the Edge Function after pulling the code change.
 - History shows when a snapshot started and when it was last confirmed unchanged. Before this behavior is deployed, old rows may still contain one row for every upload.
 - The overview and live monitoring pages separately show user-provided Philippine DENR DAO 97-30 Rule 153 references (methane 2,500 ppm, CO 50 ppm, CO₂ 5,000 ppm, and an LPG 10% LEL warning reference). These values are informational only, not independently verified here, and are not applied to raw ADC readings. Averaging periods remain “Not specified”; no exposure average is inferred.
-- Live telemetry renders through the existing dashboard pages and visual styling. Battery, heart-rate, and alert data are shown as not reported/not configured until firmware and backend support them.
+- Live telemetry renders through the existing dashboard pages and visual styling. Battery and alert data remain not reported/not configured.
 - Live history, charts, filtering, pagination, and CSV export use rows returned from Supabase. Data is read-only in the browser.
 - If setup is incomplete, the dashboard displays the database/configuration error rather than falling back to simulated readings.
 
@@ -35,4 +36,12 @@ Minewatch reads real ESP32 gas-sensor telemetry from Supabase and refreshes the 
 - `mockSensorEngine.js` — preserved mock implementation, currently unused by the page.
 - `Pictures/webBG.jpg` — dashboard background.
 
-The ESP32 currently uploads only raw gas-module ADC readings. Add separate hardware and firmware support before expecting battery voltage/current, battery percentage, or heart rate in the live dashboard. This prototype is not a certified safety system.
+## Analog pulse sensor setup
+
+- Install **PulseSensor Playground** from Arduino IDE Library Manager.
+- Connect the analog pulse sensor's signal output to ESP32 GPIO 32, VCC to 3.3V, and GND to GND. Confirm the module output never exceeds 3.3V; module wiring/voltage requirements can vary.
+- The sketch uses 10-bit ADC sampling for PulseSensor Playground and scales gas ADC readings by four to preserve their existing approximate 0–4095 display range. Set `PULSE_SENSOR_THRESHOLD` to suit the sensor's signal; the default is a starting point, not a calibrated value.
+- The firmware uploads `PULSE_BPM` only after a recent beat is detected. If the library cannot initialize or no beat is detected, gas uploads continue without a pulse reading.
+- Redeploy the updated `ingest-telemetry` Edge Function and website before expecting heart rate in Supabase/dashboard. The existing telemetry table needs no schema change; it stores the BPM in `value` and `bpm` in `unit`.
+
+Heart-rate readings are informational and this prototype is not a medical device or certified safety system. Battery voltage/current and battery percentage are not uploaded.

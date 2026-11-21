@@ -5,7 +5,9 @@ const allowedReadings: Record<string, string> = {
   MQ6_ADC: "ADC counts",
   MQ7_ADC: "ADC counts",
   MG811_ADC: "ADC counts",
+  PULSE_BPM: "bpm",
 };
+const requiredReadings = ["MQ4_ADC", "MQ6_ADC", "MQ7_ADC", "MG811_ADC"];
 
 function constantTimeEqual(a: string, b: string): boolean {
   const left = new TextEncoder().encode(a);
@@ -56,15 +58,21 @@ Deno.serve(async (request) => {
   }
 
   const entries = Object.entries(payload.readings);
-  if (entries.length !== Object.keys(allowedReadings).length ||
-      entries.some(([code, value]) =>
-    !(code in allowedReadings) ||
-    typeof value !== "number" ||
-    !Number.isInteger(value) ||
-    value < 0 ||
-    value > 4095
-  )) {
-    return new Response("Unsupported sensor or invalid ADC count", { status: 400 });
+  const readings = payload.readings as Record<string, unknown>;
+  if (!requiredReadings.every((code) =>
+    Object.prototype.hasOwnProperty.call(readings, code)
+  ) || entries.some(([code, value]) => {
+    if (!Object.prototype.hasOwnProperty.call(allowedReadings, code) ||
+        typeof value !== "number" ||
+        !Number.isInteger(value)) {
+      return true;
+    }
+
+    return code === "PULSE_BPM"
+      ? value < 30 || value > 220
+      : value < 0 || value > 4095;
+  })) {
+    return new Response("Unsupported sensor or invalid reading", { status: 400 });
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");

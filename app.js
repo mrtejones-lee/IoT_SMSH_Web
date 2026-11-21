@@ -81,7 +81,7 @@
   function sensorCard(sensor, includeChart) {
     const item = state().readings[sensor.code];
     return '<article class="sensor-card"><div class="sensor-top"><div><h3 class="sensor-name">' + escapeHtml(sensor.name) +
-      '</h3><span class="sensor-code">' + escapeHtml(sensor.short || sensor.code) + ' · ' + escapeHtml(sensor.code) + '</span></div>' + badge(item.available ? item.status : "No data") +
+      '</h3><span class="sensor-code">' + escapeHtml(sensor.short || sensor.code) + ' · ' + escapeHtml(sensor.code) + '</span></div>' + badge(item.status) +
       '</div><div class="reading">' + reading(sensor.code, sensor.code === "BATTERY" || sensor.code === "CURRENT" ? 2 : 0) +
       '</div><div class="small-meta">Updated ' + escapeHtml(shortTime(item.updatedAt)) + '</div>' +
       (includeChart ? chart(sensor.code) : "") + "</article>";
@@ -137,7 +137,7 @@
 
   function overview() {
     const s = state();
-    return header("Overview", "Live ESP32 telemetry from Supabase. The dashboard checks for new readings every " + s.intervalMs / 1000 + " seconds.") +
+    return header("Overview", "Live ESP32 gas and heart-rate telemetry from Supabase. The dashboard checks for new readings every " + s.intervalMs / 1000 + " seconds.") +
       '<div class="toolbar"><h2 class="section-title">System snapshot</h2><span class="demo-label">LIVE DATA – ESP32</span></div>' +
       metrics() + '<div class="content-grid"><section class="panel"><div class="panel-head"><h2>Latest telemetry</h2><span>' + escapeHtml(time(s.lastTelemetry)) + '</span></div>' +
       '<div class="panel-body sensor-grid">' + liveSensors().map(function (sensor) { return sensorCard(sensor, false); }).join("") + '</div></section>' +
@@ -154,19 +154,19 @@
       '<div class="status-line"><span>Participant</span><span>MINER-001 · anonymized</span></div>' +
       '<div class="status-line"><span>Connection / firmware</span><span>Wi-Fi · firmware not reported</span></div>' +
       '<div class="status-line"><span>ADC</span><span>ESP32 built-in ADC · raw counts</span></div>' +
-      '<div class="status-line"><span>Power / heart rate</span><span>Not reported by current firmware</span></div>' +
-      '<p class="disclaimer">Gas readings are raw ADC counts, not calibrated gas concentrations. This is not a certified safety system.</p></section></div>';
+      '<div class="status-line"><span>Heart rate</span><span>' + reading("HEART") + '</span></div>' +
+      '<p class="disclaimer">Gas readings are raw ADC counts, not calibrated concentrations. Heart-rate values are informational only, not medical measurements. This is not a certified safety system.</p></section></div>';
   }
 
   function monitoring() {
     const config = engine.config();
     const s = state();
-    return header("Live monitoring", "ESP32 environmental sensor readings retrieved from Supabase. Values are raw, uncalibrated measurements.") +
-      '<div class="toolbar"><h2 class="section-title">Environmental monitoring</h2><span class="demo-label">LIVE DATA – ESP32</span></div>' +
+    return header("Live monitoring", "ESP32 gas and heart-rate readings retrieved from Supabase. Gas values are raw, uncalibrated measurements.") +
+      '<div class="toolbar"><h2 class="section-title">Environmental and biometric monitoring</h2><span class="demo-label">LIVE DATA – ESP32</span></div>' +
       '<div class="sensor-grid">' + config.map(function (sensor) { return sensorCard(sensor, true); }).join("") + '</div>' +
       gasReferencePanel() +
       '<div class="toolbar" style="margin-top:22px"><h2 class="section-title">Other telemetry</h2></div>' +
-      '<section class="panel"><div class="status-line"><span>Heart rate</span><span>Not sent by current ESP32 firmware</span></div>' +
+      '<section class="panel"><div class="status-line"><span>Heart rate</span><span>Shown above when a recent pulse is detected</span></div>' +
       '<div class="status-line"><span>Battery voltage / current / charge</span><span>Not sent by current ESP32 firmware</span></div>' +
       '<div class="status-line"><span>ADS1115</span><span>Not used; these pins use the ESP32 built-in ADC</span></div></section>' +
       '<section class="panel" style="margin-top:14px"><div class="panel-head"><h2>Combined historical trend</h2><span>Last ' + escapeHtml(ui.period) + '</span></div><div class="panel-body">' +
@@ -180,11 +180,11 @@
         return sensor ? '<div class="hardware"><strong>' + escapeHtml(sensor.name) + ' · ' + escapeHtml(sensor.unit) + '</strong>' + chart(code, ui.period) + '</div>' : "";
       }).join("") + '</div></div></section>' +
       '<div class="split">' + liveControls() + '<section class="panel"><div class="panel-head"><h2>Hardware and data notes</h2><span>HELMET-001</span></div>' +
-      '<div class="status-line"><span>Analog acquisition</span><span>ESP32 built-in ADC · four channels</span></div>' +
+      '<div class="status-line"><span>Analog acquisition</span><span>ESP32 built-in ADC · five channels</span></div>' +
       '<div class="status-line"><span>MQ-4</span><span>Methane module · raw ADC counts</span></div>' +
       '<div class="status-line"><span>MG811</span><span>Raw ADC counts (not ppm)</span></div>' +
-      '<div class="status-line"><span>Battery / heart rate</span><span>Not included in current uploads</span></div>' +
-      '<p class="disclaimer">Sensor modules require suitable calibration before interpreting readings as gas concentration.</p></section></div>';
+      '<div class="status-line"><span>Heart rate</span><span>Pulse sensor · GPIO 32 · bpm when detected</span></div>' +
+      '<p class="disclaimer">Gas modules require calibration before interpreting readings as concentration. Pulse readings are informational only, not medical measurements.</p></section></div>';
   }
 
   function devices() {
@@ -192,7 +192,7 @@
     const components = [
       ["MQ-4", "Methane sensor · raw ADC counts", "CH4"], ["MQ-7", "Carbon monoxide sensor · raw ADC counts", "CO"],
       ["MQ-6", "LPG / combustible gas sensor · raw ADC counts", "LPG"], ["MG811", "Carbon dioxide sensor · raw ADC counts", "CO2"],
-      ["Ear-clip sensor", "Heart-rate sensor · not sent", null], ["ADS1115", "Not used; ESP32 built-in ADC is used", null],
+      ["Pulse sensor", "Heart rate · GPIO 32", "HEART"], ["ADS1115", "Not used; ESP32 built-in ADC is used", null],
       ["Battery module", "Voltage/current · not sent", null]
     ];
     return header("Helmet devices", "Inspect the anonymized helmet record and the hardware currently represented in live telemetry.") +
@@ -205,7 +205,7 @@
       (ui.deviceDetails ? '<div class="hardware-grid" style="margin-top:14px">' + components.map(function (component) {
         const item = component[2] ? s.readings[component[2]] : null;
         return '<article class="hardware"><strong>' + component[0] + '</strong><span>' + component[1] + '</span>' +
-          (item ? '<div class="small-meta">' + reading(component[2]) + '</div>' + badge(item.available ? item.status : "No data") : '<div class="small-meta">No live reading configured</div>') + '</article>';
+          (item ? '<div class="small-meta">' + reading(component[2]) + '</div>' + badge(item.status) : '<div class="small-meta">No live reading configured</div>') + '</article>';
       }).join("") + '</div><p class="small-meta">Latest telemetry received: ' + escapeHtml(time(s.lastTelemetry)) + '</p>' : "") +
       '</div></section><p class="disclaimer">Device connectivity is inferred from recent database telemetry; no direct Wi-Fi status or firmware information is uploaded.</p>';
   }
@@ -218,9 +218,9 @@
       '<section class="panel"><div class="panel-head"><h2>Demo participants</h2><span>1 anonymized record</span></div><div class="panel-body">' +
       '<label class="field">Search participants<input id="miner-search" class="search" type="search" placeholder="Search ID, helmet, or status" value="' + escapeHtml(ui.minerSearch) + '"></label></div>' +
       (matches ? '<div class="table-wrap"><table><thead><tr><th>Participant ID</th><th>Assigned helmet</th><th>Monitoring status</th><th>Last communication</th><th>Latest heart rate</th><th>Battery</th></tr></thead><tbody><tr><td>MINER-001</td><td>HELMET-001</td><td>' +
-        badge(s.deviceOnline ? "Recent" : "Stale / none") + '</td><td>' + escapeHtml(time(s.lastHeartbeat)) + '</td><td>Not reported</td><td>Not reported</td></tr></tbody></table></div>' :
+        badge(s.deviceOnline ? "Recent" : "Stale / none") + '</td><td>' + escapeHtml(time(s.lastHeartbeat)) + '</td><td>' + reading("HEART") + '</td><td>Not reported</td></tr></tbody></table></div>' :
         '<div class="empty">No anonymized participant matches this search.</div>') + '</section>' +
-      '<p class="disclaimer">MINER-001 is an anonymized demo label. Heart rate and battery telemetry are not currently uploaded.</p>';
+      '<p class="disclaimer">MINER-001 is an anonymized demo label. Heart-rate values are informational only, not medical measurements; battery telemetry is not uploaded.</p>';
   }
 
   function alerts() {

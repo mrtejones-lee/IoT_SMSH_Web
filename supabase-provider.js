@@ -6,13 +6,15 @@
     MQ4_ADC: { code: "CH4", name: "MQ-4", unit: "ADC counts" },
     MQ7_ADC: { code: "CO", name: "MQ-7", unit: "ADC counts" },
     MQ6_ADC: { code: "LPG", name: "MQ-6", unit: "ADC counts" },
-    MG811_ADC: { code: "CO2", name: "MG811", unit: "ADC counts" }
+    MG811_ADC: { code: "CO2", name: "MG811", unit: "ADC counts" },
+    PULSE_BPM: { code: "HEART", name: "Heart rate", unit: "bpm" }
   };
   const sensors = [
     { code: "CH4", name: "MQ-4", short: "Methane (CH₄)", unit: "ADC counts" },
     { code: "CO", name: "MQ-7", short: "Carbon Monoxide (CO)", unit: "ADC counts" },
     { code: "LPG", name: "MQ-6", short: "Combustible Gas / LPG", unit: "ADC counts" },
-    { code: "CO2", name: "MG811", short: "Carbon Dioxide (CO₂)", unit: "ADC counts" }
+    { code: "CO2", name: "MG811", short: "Carbon Dioxide (CO₂)", unit: "ADC counts" },
+    { code: "HEART", name: "Heart rate", short: "Pulse sensor", unit: "bpm" }
   ];
 
   let timer = null;
@@ -92,7 +94,7 @@
       databaseSensorCode: row.sensor_code,
       value: value,
       unit: sensor.unit,
-      status: "Not calibrated",
+      status: sensor.code === "HEART" ? "Measured" : "Not calibrated",
       timestamp: timestamp,
       lastSeenAt: row.received_at || timestamp,
       source: "ESP32"
@@ -163,11 +165,15 @@
       sensors.forEach(function (sensor) {
         const latest = history.find(function (record) { return record.sensorCode === sensor.code; });
         const reading = state.readings[sensor.code];
-        reading.value = latest ? latest.value : null;
+        const fresh = latest && (sensor.code !== "HEART" ||
+          Date.now() - Date.parse(latest.lastSeenAt) <= config.recentTelemetryMs);
+        reading.value = fresh ? latest.value : null;
         reading.unit = latest ? latest.unit : sensor.unit;
         reading.updatedAt = latest ? latest.timestamp : null;
-        reading.available = Boolean(latest);
-        reading.status = latest ? "Not calibrated" : "No data";
+        reading.available = Boolean(fresh);
+        reading.status = !latest ? "No data" : sensor.code === "HEART"
+          ? fresh ? "Measured" : "Stale"
+          : "Not calibrated";
       });
 
       state.lastTelemetry = history.length ? history.reduce(function (latest, record) {
