@@ -2,12 +2,11 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const allowedReadings: Record<string, string> = {
   MQ4_ADC: "ADC counts",
-  MQ6_ADC: "ADC counts",
   MQ7_ADC: "ADC counts",
   MG811_ADC: "ADC counts",
   PULSE_BPM: "bpm",
 };
-const requiredReadings = ["MQ4_ADC", "MQ6_ADC", "MQ7_ADC", "MG811_ADC"];
+const requiredReadings = ["MQ4_ADC", "MQ7_ADC", "MG811_ADC"];
 
 function constantTimeEqual(a: string, b: string): boolean {
   const left = new TextEncoder().encode(a);

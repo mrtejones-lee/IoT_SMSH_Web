@@ -5,7 +5,13 @@
   const app = document.querySelector("#app");
   const nav = document.querySelector("#nav");
   const clock = document.querySelector("#clock");
-  const periods = { "1m": 60000, "5m": 300000, "15m": 900000, "30m": 1800000, "1h": 3600000 };
+  const periods = {
+    "5m": { label: "5m", duration: 5 * 60 * 1000 },
+    "1h": { label: "1hr", duration: 60 * 60 * 1000 },
+    "24h": { label: "24hrs", duration: 24 * 60 * 60 * 1000 },
+    "7d": { label: "7days", duration: 7 * 24 * 60 * 60 * 1000 },
+    "1mo": { label: "1month", duration: 30 * 24 * 60 * 60 * 1000 }
+  };
   const ui = {
     period: "5m",
     selectedSeries: ["CH4", "CO"],
@@ -58,7 +64,7 @@
   function sensorByCode(code) { return engine.config().find(function (sensor) { return sensor.code === code; }); }
 
   function chart(code, period) {
-    const duration = periods[period || ui.period] || periods["5m"];
+    const duration = (periods[period || ui.period] || periods["5m"]).duration;
     const cutoff = Date.now() - duration;
     const records = state().history.filter(function (record) {
       return record.sensorCode === code && new Date(record.timestamp).getTime() >= cutoff;
@@ -109,7 +115,6 @@
   function gasReferencePanel() {
     const references = [
       ["MQ-4 · Methane (CH₄)", "0.25% / 2,500 ppm", "Not specified", "Reference as supplied; verify against the authoritative rule text."],
-      ["MQ-6 · LPG / combustible gas", "10% LEL warning reference", "Not specified", "Not confirmed as a legal limit; depends on target gas and calibration."],
       ["MQ-7 · Carbon monoxide (CO)", "0.005% / 50 ppm", "Not specified", "Reference as supplied; verify against the authoritative rule text."],
       ["MG811 · Carbon dioxide (CO₂)", "0.50% / 5,000 ppm", "Not specified", "Reference as supplied; verify against the authoritative rule text."]
     ];
@@ -171,7 +176,7 @@
       '<div class="status-line"><span>ADS1115</span><span>Not used; these pins use the ESP32 built-in ADC</span></div></section>' +
       '<section class="panel" style="margin-top:14px"><div class="panel-head"><h2>Combined historical trend</h2><span>Last ' + escapeHtml(ui.period) + '</span></div><div class="panel-body">' +
       '<div class="form-row"><div class="tab-row">' + Object.keys(periods).map(function (period) {
-        return '<button class="button ' + (ui.period === period ? "selected" : "") + '" data-period="' + period + '">' + period + '</button>';
+        return '<button class="button ' + (ui.period === period ? "selected" : "") + '" data-period="' + period + '">' + periods[period].label + '</button>';
       }).join("") + '</div><div class="tab-row">' + config.map(function (sensor) {
         return '<button class="button ' + (ui.selectedSeries.includes(sensor.code) ? "selected" : "") + '" data-series="' + sensor.code + '">' + escapeHtml(sensor.code) + '</button>';
       }).join("") + '</div></div>' +
@@ -180,7 +185,7 @@
         return sensor ? '<div class="hardware"><strong>' + escapeHtml(sensor.name) + ' · ' + escapeHtml(sensor.unit) + '</strong>' + chart(code, ui.period) + '</div>' : "";
       }).join("") + '</div></div></section>' +
       '<div class="split">' + liveControls() + '<section class="panel"><div class="panel-head"><h2>Hardware and data notes</h2><span>HELMET-001</span></div>' +
-      '<div class="status-line"><span>Analog acquisition</span><span>ESP32 built-in ADC · five channels</span></div>' +
+      '<div class="status-line"><span>Analog acquisition</span><span>ESP32 built-in ADC · four channels</span></div>' +
       '<div class="status-line"><span>MQ-4</span><span>Methane module · raw ADC counts</span></div>' +
       '<div class="status-line"><span>MG811</span><span>Raw ADC counts (not ppm)</span></div>' +
       '<div class="status-line"><span>Heart rate</span><span>Pulse sensor · GPIO 32 · bpm when detected</span></div>' +
@@ -191,7 +196,7 @@
     const s = state();
     const components = [
       ["MQ-4", "Methane sensor · raw ADC counts", "CH4"], ["MQ-7", "Carbon monoxide sensor · raw ADC counts", "CO"],
-      ["MQ-6", "LPG / combustible gas sensor · raw ADC counts", "LPG"], ["MG811", "Carbon dioxide sensor · raw ADC counts", "CO2"],
+      ["MG811", "Carbon dioxide sensor · raw ADC counts", "CO2"],
       ["Pulse sensor", "Heart rate · GPIO 32", "HEART"], ["ADS1115", "Not used; ESP32 built-in ADC is used", null],
       ["Battery module", "Voltage/current · not sent", null]
     ];
@@ -269,7 +274,7 @@
       (ui.historyPage === 0 ? "disabled" : "") + '>Previous</button><button class="button" data-action="history-next" ' +
       (ui.historyPage >= pages - 1 ? "disabled" : "") + '>Next</button></div></div></section>' +
       '<section class="panel" style="margin-top:12px"><div class="panel-head"><h2>Historical sensor trend</h2><span>Last ' + ui.period + '</span></div><div class="panel-body">' +
-      '<div class="tab-row">' + Object.keys(periods).map(function (period) { return '<button class="button ' + (ui.period === period ? "selected" : "") + '" data-period="' + period + '">' + period + '</button>'; }).join("") + '</div>' +
+      '<div class="tab-row">' + Object.keys(periods).map(function (period) { return '<button class="button ' + (ui.period === period ? "selected" : "") + '" data-period="' + period + '">' + periods[period].label + '</button>'; }).join("") + '</div>' +
       '<div class="sensor-grid" style="margin-top:12px">' + ui.selectedSeries.slice(0, 3).map(function (code) {
         return '<div class="hardware"><strong>' + escapeHtml(code) + '</strong>' + chart(code, ui.period) + '</div>';
       }).join("") + '</div></div></section>';
