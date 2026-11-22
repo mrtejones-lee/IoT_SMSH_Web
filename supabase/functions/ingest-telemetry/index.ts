@@ -56,8 +56,12 @@ Deno.serve(async (request) => {
     return new Response("Invalid device or readings", { status: 400 });
   }
 
-  const entries = Object.entries(payload.readings);
   const readings = payload.readings as Record<string, unknown>;
+  // MQ6_ADC is retained in old firmware payloads but is no longer a supported sensor.
+  const legacyRemovedReadings = Object.fromEntries(
+    Object.entries(readings).filter(([code]) => code !== "MQ6_ADC")
+  );
+  const entries = Object.entries(legacyRemovedReadings);
   if (!requiredReadings.every((code) =>
     Object.prototype.hasOwnProperty.call(readings, code)
   ) || entries.some(([code, value]) => {
@@ -124,7 +128,7 @@ Deno.serve(async (request) => {
       .in("id", rowIds);
 
     if (error) {
-      console.error("Telemetry last-seen update failed:", error.message);
+      console.error("Telemetry heartbeat update failed:", error.message);
       return new Response("Database heartbeat update failed", { status: 500 });
     }
 
