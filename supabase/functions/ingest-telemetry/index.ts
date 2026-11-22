@@ -72,7 +72,7 @@ Deno.serve(async (request) => {
     }
 
     return code === "PULSE_BPM"
-      ? value < 30 || value > 220
+      ? value < 0 || value > 220
       : value < 0 || value > 4095;
   })) {
     return new Response("Unsupported sensor or invalid reading", { status: 400 });

@@ -112,6 +112,7 @@
       '</div><div class="metric-sub">' + escapeHtml(sub) + "</div></article>";
   }
 
+
   function gasReferencePanel() {
     const references = [
       ["MQ-4 · Methane (CH₄)", "0.25% / 2,500 ppm", "Not specified", "Reference as supplied; verify against the authoritative rule text."],
@@ -263,7 +264,7 @@
       '<div class="panel-body"><div class="form-row"><label class="field">Sensor<select id="history-sensor"><option value="all">All sensors</option>' +
       engine.config().map(function (sensor) { return '<option value="' + sensor.code + '"' + (f.sensor === sensor.code ? " selected" : "") + '>' + escapeHtml(sensor.name) + '</option>'; }).join("") +
       '</select></label><label class="field">Status<select id="history-status"><option value="all">All statuses</option>' +
-      ["not calibrated", "no data"].map(function (status) { return '<option value="' + status + '"' + (f.status === status ? " selected" : "") + '>' + status + '</option>'; }).join("") +
+      ["not calibrated", "measured", "no beat detected", "stale", "no data"].map(function (status) { return '<option value="' + status + '"' + (f.status === status ? " selected" : "") + '>' + status + '</option>'; }).join("") +
       '</select></label><label class="field">Device<select id="history-device"><option value="all">All devices</option><option value="HELMET-001"' + (f.device === "HELMET-001" ? " selected" : "") + '>HELMET-001</option></select></label>' +
       '<label class="field">Date<input id="history-date" type="date" value="' + escapeHtml(f.date) + '"></label>' +
       '<label class="field">Time<input id="history-time" type="time" value="' + escapeHtml(f.time) + '"></label>' +

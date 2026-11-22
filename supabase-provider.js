@@ -92,7 +92,9 @@
       databaseSensorCode: row.sensor_code,
       value: value,
       unit: sensor.unit,
-      status: sensor.code === "HEART" ? "Measured" : "Not calibrated",
+      status: sensor.code === "HEART"
+        ? value === 0 ? "No beat detected" : "Measured"
+        : "Not calibrated",
       timestamp: timestamp,
       lastSeenAt: row.received_at || timestamp,
       source: "ESP32"
@@ -170,7 +172,7 @@
         reading.updatedAt = latest ? latest.timestamp : null;
         reading.available = Boolean(fresh);
         reading.status = !latest ? "No data" : sensor.code === "HEART"
-          ? fresh ? "Measured" : "Stale"
+          ? fresh ? latest.value === 0 ? "No beat detected" : "Measured" : "Stale"
           : "Not calibrated";
       });
 
