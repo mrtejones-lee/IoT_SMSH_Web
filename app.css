@@ -105,6 +105,9 @@ h2,h3,p { overflow-wrap: anywhere; }
 .alert-source a:hover { color: #fff3dc; }
 .ml-outcome,.ml-data-panel,.ml-explainer { margin-top: 14px; }
 .ml-notice { margin-bottom: 14px; }
+.ml-history { margin-top: 14px; }
+.ml-history-table { min-width: 760px; }
+.ml-history-table td { vertical-align: middle; }
 .ml-result { padding: 14px 16px; border-left: 3px solid var(--green); background: rgba(139,198,154,.07); }
 .ml-result.warning { border-color: #f2c46f; background: rgba(242,196,111,.07); }
 .ml-result.critical { border-color: var(--red); background: rgba(239,118,112,.07); }

@@ -345,8 +345,86 @@
         return '<article class="alert-check"><div class="alert-check-head"><div><h3>' + escapeHtml(item.title) + '</h3><span>' + escapeHtml(item.value) + '</span></div>' +
           badge(item.status) + '</div><p><strong>Criteria:</strong> ' + escapeHtml(item.threshold) + '</p><p class="small-meta">' +
           escapeHtml(item.basis) + '</p></article>';
-      }).join("") + '</div></section>' + alertSources() +
+      }).join("") + '</div></section>' + previousAlerts() + alertSources() +
       '<p class="disclaimer"></p>';
+  }
+
+  function previousAlerts() {
+    const definitions = [
+      { code: "CH4", title: "Methane · MQ-4", unit: "ADC counts", warning: 720, critical: 900 },
+      { code: "CO", title: "Carbon monoxide · MQ-7", unit: "ADC counts", warning: 200, critical: 400 },
+      { code: "CO2", title: "Carbon dioxide · MG811", unit: "ADC counts", warning: 275, critical: 275 },
+      { code: "HEART", title: "Heart rate · pulse sensor", unit: "bpm", warning: 130, critical: 140 }
+    ];
+    const records = state().history;
+    const events = [];
+
+    definitions.forEach(function (definition) {
+      const sensorRecords = records.filter(function (record) {
+        return record.sensorCode === definition.code &&
+          Number.isFinite(Number(record.value)) &&
+          !Number.isNaN(Date.parse(record.timestamp));
+      }).slice().sort(function (a, b) {
+        return Date.parse(a.timestamp) - Date.parse(b.timestamp);
+      });
+      let previousStatus = null;
+
+      sensorRecords.forEach(function (record) {
+        const value = Number(record.value);
+        let status = "Normal";
+        if (definition.code === "HEART") {
+          if (value === 0) status = "No beat";
+          else if (value > definition.critical) status = "Critical";
+          else if (value >= definition.warning) status = "Warning";
+          else if (value < 60) status = "Review";
+        } else if (value >= definition.critical) {
+          status = "Critical";
+        } else if (value >= definition.warning) {
+          status = "Warning";
+        }
+
+        if (status === "Critical" && previousStatus !== "Critical") {
+          events.push({
+            timestamp: record.timestamp,
+            sensor: definition.title,
+            reading: fmt(value) + " " + definition.unit,
+            status: status,
+            event: previousStatus === "Warning" ? "Escalated from Warning" :
+              previousStatus === null ? "First observed at Critical" : "Critical threshold crossed"
+          });
+        } else if (status === "Warning" && previousStatus !== "Warning" && previousStatus !== "Critical") {
+          events.push({
+            timestamp: record.timestamp,
+            sensor: definition.title,
+            reading: fmt(value) + " " + definition.unit,
+            status: status,
+            event: previousStatus === null ? "First observed at Warning" : "Warning threshold crossed"
+          });
+        } else if (status === "Review" && previousStatus !== "Review") {
+          events.push({
+            timestamp: record.timestamp,
+            sensor: definition.title,
+            reading: fmt(value) + " " + definition.unit,
+            status: status,
+            event: previousStatus === null ? "First observed at Review" : "Review threshold crossed"
+          });
+        }
+        previousStatus = status;
+      });
+    });
+
+    events.sort(function (a, b) { return Date.parse(b.timestamp) - Date.parse(a.timestamp); });
+    const rows = events.length
+      ? events.slice(0, 100).map(function (event) {
+        return '<tr><td>' + escapeHtml(time(event.timestamp)) + '</td><td>' + escapeHtml(event.sensor) +
+          '</td><td>' + escapeHtml(event.reading) + '</td><td>' + badge(event.status) +
+          '</td><td>' + escapeHtml(event.event) + '</td></tr>';
+      }).join("")
+      : '<tr><td colspan="5"><div class="empty">No threshold crossings found in the loaded telemetry history.</div></td></tr>';
+
+    return '<section class="panel ml-history"><div class="panel-head"><h2>Previous alerts</h2><span>Derived from loaded telemetry · newest 100</span></div>' +
+      '<div class="table-wrap"><table class="ml-history-table"><thead><tr><th>Date and time</th><th>Sensor</th><th>Reading</th><th>Status</th><th>Event</th></tr></thead><tbody>' +
+      rows + '</tbody></table></div><div class="panel-body"><p class="small-meta">These threshold crossings are reconstructed from the loaded sensor history; they are not saved alert records. Initial elevated readings are marked as first observed.</p></div></section>';
   }
 
   function mlScenario() {
@@ -370,20 +448,20 @@
       const rising = previous != null && candidate > previous + Math.max(1, definition.warning * .05) &&
         candidate >= definition.warning * .75;
       let status = "Normal";
-      let reason = "Below the demo criteria.";
+      let reason = "Below the criteria.";
       if (definition.code === "HEART") {
         if (candidate > 140) { status = "Critical"; reason = "Above the demo high-pulse criterion."; }
         else if (candidate >= 130) { status = "Warning"; reason = "At or above the demo elevated-pulse criterion."; }
         else if (candidate < 60) { status = "Review"; reason = "Below 60 bpm; activity state is unknown."; }
       } else if (candidate >= definition.critical) {
         status = "Critical";
-        reason = "At or above the demo high-level criterion.";
+        reason = "At or above the high-level criterion.";
       } else if (candidate >= definition.warning) {
         status = "Warning";
-        reason = "At or above the demo review criterion.";
+        reason = "At or above the review criterion.";
       } else if (rising) {
         status = "Watch";
-        reason = "Rising versus the previous sample and near the demo criterion.";
+        reason = "Rising versus the previous sample and near the criterion.";
       }
       return {
         code: definition.code,
@@ -417,15 +495,83 @@
     };
   }
 
+  function mlWarningToCriticalHistory() {
+    const definitions = [
+      { code: "CH4", title: "Methane · MQ-4", unit: "ADC", warning: 720, critical: 900 },
+      { code: "CO", title: "Carbon monoxide · MQ-7", unit: "ADC", warning: 200, critical: 400 },
+      { code: "CO2", title: "Carbon dioxide · MG811", unit: "ADC", warning: 275, critical: 275 },
+      { code: "HEART", title: "Heart rate · pulse sensor", unit: "bpm", warning: 130, critical: 140 }
+    ];
+    const s = state();
+    const transitions = [];
+
+    definitions.forEach(function (definition) {
+      const records = s.history.filter(function (record) {
+        return record.sensorCode === definition.code &&
+          Number.isFinite(Number(record.value)) &&
+          !Number.isNaN(Date.parse(record.timestamp));
+      }).slice().sort(function (a, b) {
+        return Date.parse(a.timestamp) - Date.parse(b.timestamp);
+      });
+
+      let previousStatus = null;
+      let previousValue = null;
+      let previousTimestamp = null;
+
+      records.forEach(function (record) {
+        const value = Number(record.value);
+        let status = "Normal";
+        if (definition.code === "HEART") {
+          if (value === 0) status = "No beat";
+          else if (value > definition.critical) status = "Critical";
+          else if (value >= definition.warning) status = "Warning";
+          else if (value < 60) status = "Review";
+        } else {
+          if (value >= definition.critical) status = "Critical";
+          else if (value >= definition.warning) status = "Warning";
+        }
+
+        if (previousStatus === "Warning" && status === "Critical") {
+          transitions.push({
+            timestamp: record.timestamp,
+            sensor: definition.title,
+            reading: fmt(value) + " " + definition.unit,
+            previousValue: previousValue,
+            from: "Warning",
+            to: "Critical",
+            source: record.source || "ESP32"
+          });
+        }
+
+        if (status !== previousStatus) {
+          previousStatus = status;
+          previousValue = value;
+          previousTimestamp = record.timestamp;
+        }
+      });
+    });
+
+    transitions.sort(function (a, b) {
+      return Date.parse(b.timestamp) - Date.parse(a.timestamp);
+    });
+
+    if (!transitions.length) {
+      return '<tr><td colspan="6"><div class="empty">No Warning → Critical transitions found in the loaded historical records.</div></td></tr>';
+    }
+
+    return transitions.slice(0, 100).map(function (transition) {
+      return '<tr><td>' + escapeHtml(time(transition.timestamp)) + '</td><td>' + escapeHtml(transition.sensor) +
+        '</td><td>' + escapeHtml(transition.reading) + '</td><td>' + badge("Warning") +
+        '</td><td>' + badge("Critical") + '</td><td>' + escapeHtml(transition.source) + '</td></tr>';
+    }).join("");
+  }
+
   function mlPredictions() {
     const scenario = mlScenario();
-    return header("ML predictions") +
-      '<div class="notice ml-notice"><strong>Mock demonstration, not a trained ML model.</strong> The outcome below is generated by transparent example rules and provisional ADC thresholds. Gas sensor counts are uncalibrated. Do not use this as a safety decision.</div>' +
-      '<section class="panel ml-outcome"><div class="panel-head"><h2>Illustrative scenario outcome</h2><span>Recalculated from current inputs</span></div><div class="panel-body">' +
-      '<div class="ml-result ' + statusClass(scenario.status) + '"><span class="ml-result-label">Mock prediction</span><strong>' +
-      escapeHtml(scenario.outcome) + '</strong><p>' + escapeHtml(scenario.explanation === "No demo criteria are crossed in the entered scenario." ? "No demo criteria are crossed in the latest readings." : scenario.explanation) + '</p></div></div></section>' +
-      '<section class="panel ml-data-panel"><div class="panel-head"><h2>Latest sensor readings and mock example</h2><span>Recalculated from live ESP32 data</span></div>' +
-      '<div class="table-wrap"><table class="ml-table"><thead><tr><th>Sensor</th><th>Previous reading</th><th>Latest real reading</th><th>Change</th><th>Example signal</th></tr></thead><tbody>' +
+    return header("ML Predictions") +
+      escapeHtml(scenario.outcome) + '</strong><p>' + '</p></div></div></section>' +
+      '<section class="panel ml-data-panel"><div class="panel-head"><h2>Latest sensor readings.</h2><span>Recalculated from live ESP32 data</span></div>' +
+      '<div class="table-wrap"><table class="ml-table"><thead><tr><th>Sensor</th><th>Previous reading</th><th>Latest real reading</th><th>Change</th><th>Signal</th></tr></thead><tbody>' +
       scenario.samples.map(function (sample) {
         const change = sample.previous == null ? "No earlier sample" :
           (sample.candidate - sample.previous > 0 ? "+" : "") + fmt(sample.candidate - sample.previous) + " " + sample.unit;
@@ -433,7 +579,14 @@
           (sample.previous == null ? "Not available" : fmt(sample.previous) + " " + escapeHtml(sample.unit)) +
           '</td><td><strong>' + fmt(sample.candidate) + ' ' + escapeHtml(sample.unit) + '</strong><br><small>' + escapeHtml(sample.source) + '</small></td><td>' + change +
           '</td><td>' + badge(sample.status) + '<br><small>' + escapeHtml(sample.reason) + '</small></td></tr>';
-      }).join("") + '</tbody></table></div></section>' 
+      }).join("") + '</tbody></table></div></section>' +
+      '<section class="panel ml-history"><div class="panel-head"><h2>Warning-to-critical history</h2><span>Derived from saved ESP32 records</span></div>' +
+      '<div class="table-wrap"><table class="ml-history-table"><thead><tr><th>Date and time</th><th>Sensor</th><th>Reading</th><th>Previous status</th><th>New status</th><th>Source</th></tr></thead><tbody>' +
+      mlWarningToCriticalHistory() +
+      '</tbody></table></div></section>' +
+      '<section class="panel ml-explainer"><div class="panel-head"><h2>How to read this demonstration</h2><span>Mock data follows your sensor readings</span></div><div class="panel-body">' +
+      '<p><strong>Previous reading</strong> comes from the second-most-recent saved sample when available. <strong>Latest real reading</strong> comes from current ESP32 telemetry. If a sensor has no live or saved value, a clearly labeled standard mock seed is used.</p>' +
+      '<p>The mock outcome recalculates from latest readings. The warning-to-critical history below is derived from historical records using the same provisional thresholds; it is not a saved alert log or certified safety record.</p></div></section>';
   }
 
   function history() {
