@@ -104,7 +104,7 @@
     return '<section class="metrics" aria-label="System summary">' +
       metric("Registered helmets", "1", "HELMET-001 · ESP32") +
       metric("Recently reporting", String(online), online ? "Telemetry received recently" : "No recent telemetry") +
-      metric("Active alerts", "--", "No alert table configured") +
+      metric("Active alerts", "--", "Latest checks only; not stored") +
       metric("Telemetry rows loaded", String(s.packets), "Most recent records from Supabase") + "</section>";
   }
   function metric(label, value, sub) {
@@ -115,17 +115,125 @@
 
   function gasReferencePanel() {
     const references = [
-      ["MQ-4 · Methane (CH₄)", "0.25% / 2,500 ppm", "Not specified", "Reference as supplied; verify against the authoritative rule text."],
-      ["MQ-7 · Carbon monoxide (CO)", "0.005% / 50 ppm", "Not specified", "Reference as supplied; verify against the authoritative rule text."],
-      ["MG811 · Carbon dioxide (CO₂)", "0.50% / 5,000 ppm", "Not specified", "Reference as supplied; verify against the authoritative rule text."]
+      ["MQ-4 · Methane (CH₄)", "1.0% / 10,000 ppm (20% LEL)", "Immediate action threshold", "Provisional ADC comparison on Alerts."],
+      ["MQ-7 · Carbon monoxide (CO)", "25–50 ppm", "8-hour exposure guidance", "Provisional ADC comparison on Alerts."],
+      ["MG811 · Carbon dioxide (CO₂)", "5,000 ppm / 0.50%", "8-hour exposure limit", "Provisional ADC comparison on Alerts."]
     ];
-    return '<section class="panel reference-panel"><div class="panel-head"><h2>Gas concentration references</h2><span>Informational only · not applied to ratings</span></div>' +
-      '<div class="panel-body"><p class="reference-warning">User-provided references attributed to Philippine DENR DAO 97-30, Rule 153; not independently verified here. Sensors are not calibrated and the firmware sends raw ADC counts, so the dashboard does not compare readings with these references or classify conditions.</p>' +
+    return '<section class="panel reference-panel"><div class="panel-head"><h2>Gas concentration references</h2><span>Uncalibrated · provisional checks on Alerts</span></div>' +
+      '<div class="panel-body"><p class="reference-warning">These are concentration references, not calibrated sensor limits. The Alerts page shows provisional ADC-count comparisons based on explicit linear-scale assumptions; validate the sensor response before relying on them.</p>' +
       '<div class="table-wrap"><table><thead><tr><th>Sensor / gas</th><th>Reference provided</th><th>Averaging period</th><th>Use in dashboard</th></tr></thead><tbody>' +
       references.map(function (row) {
         return "<tr><td>" + escapeHtml(row[0]) + "</td><td>" + escapeHtml(row[1]) + "</td><td>" + escapeHtml(row[2]) + "</td><td>" + escapeHtml(row[3]) + "</td></tr>";
       }).join("") +
       '</tbody></table></div><p class="small-meta">All live readings remain raw ADC counts and are marked NOT CALIBRATED. ADC = 0 does not mean zero gas. Real-time readings are not occupational exposure averages.</p></div></section>';
+  }
+
+  function alertChecks() {
+    const s = state();
+    const available = function (code) {
+      const item = s.readings[code];
+      return item && item.value != null && s.deviceOnline;
+    };
+    const heart = s.readings.HEART;
+    const heartStatus = !available("HEART") || heart.value === 0 ? "No data" :
+      heart.value > 140 ? "Critical" : heart.value >= 130 ? "Warning" :
+      heart.value < 60 ? "Review" : "Normal";
+    const gasStatus = function (code, warning, critical) {
+      if (!available(code)) return "No data";
+      const value = Number(s.readings[code].value);
+      return value >= critical ? "Critical" : value >= warning ? "Warning" : "Normal";
+    };
+    return [
+      {
+        code: "HEART",
+        title: "Pulse sensor · heart rate",
+        value: heart && heart.value != null ? heart.value === 0 ? "No beat detected" : fmt(heart.value) + " bpm" : "No current reading",
+        status: heartStatus,
+        threshold: "Review at ≥130 bpm; high at >140 bpm; <60 bpm needs active-work confirmation.",
+        basis: "A single current reading cannot establish a full-shift sustained rate. Age-predicted maximum (220 − age) and whether the miner is active are not available in telemetry."
+      },
+      {
+        code: "CH4",
+        title: "MQ-4 · methane",
+        value: available("CH4") ? fmt(s.readings.CH4.value) + " ADC counts (" + fmt(s.readings.CH4.value / 3600 * 100, 1) + "% of tested max)" : "No current reading",
+        status: gasStatus("CH4", 720, 900),
+        threshold: "Warning: 720 counts (20%); critical: 900 counts (25%); evacuation reference: 1,800 counts (50%) of tested max 3,600.",
+        basis: "Provisional linear scaling assumes the 3,600-count maximum represents 5% methane by volume (100% LEL). This relationship has not been calibrated."
+      },
+      {
+        code: "CO",
+        title: "MQ-7 · carbon monoxide",
+        value: available("CO") ? fmt(s.readings.CO.value) + " ADC counts (" + fmt(s.readings.CO.value / 3200 * 100, 1) + "% of tested max)" : "No current reading",
+        status: gasStatus("CO", 200, 400),
+        threshold: "Warning: 200 counts (6.25%); critical: 400 counts (12.5%) of tested max 3,200.",
+        basis: "Provisional linear scaling assumes 3,200 counts represents 400 ppm, the upper endpoint shown in the supplied effects table. 25–50 ppm exposure limits are time-weighted; this dashboard cannot calculate an 8-hour average."
+      },
+      {
+        code: "CO2",
+        title: "MG811 · carbon dioxide",
+        value: available("CO2") ? fmt(s.readings.CO2.value) + " ADC counts (" + fmt(s.readings.CO2.value / 2200 * 100, 1) + "% of tested max)" : "No current reading",
+        status: gasStatus("CO2", 275, 275),
+        threshold: "Alert: 275 counts (12.5%) of tested max 2,200.",
+        basis: "Provisional linear scaling assumes 2,200 counts represents 40,000 ppm, the upper endpoint shown in the supplied effects table. The cited 5,000 ppm limit is an 8-hour exposure limit."
+      }
+    ];
+  }
+
+  function alertSources() {
+    const sources = [
+      {
+        code: "HEART",
+        title: "Heart-rate alert basis",
+        summary: "Review sustained rates around 130–140 bpm, age-predicted maximum (220 − age), and a pulse below 60 bpm while active. This prototype lacks miner age, activity state, and full-shift exposure data.",
+        links: [
+          ["American Heart Association · Target heart rates", "https://www.heart.org/en/healthy-living/exercise-and-physical-activity/fitness-basics/target-heart-rates"],
+          ["JIO M Nepal · supplied reference", "https://jiomnepal.edu.np/index.php/jiomnepal/article/download/497/476/944"],
+          ["Medanta · Normal vs dangerous heart rate", "https://www.medanta.org/patient-education-blog/normal-vs-dangerous-heart-rate"],
+          ["Cleveland Clinic · Heart rate", "https://my.clevelandclinic.org/health/diagnostics/heart-rate"]
+        ]
+      },
+      {
+        code: "CH4",
+        title: "Methane alert basis",
+        summary: "Near-zero is the expected normal tunnel reading; 1.0% by volume (20% LEL) is an action threshold, with higher concentrations requiring shutdown or evacuation under the applicable mine plan.",
+        links: [
+          ["CDC/NIOSH · Methane control", "https://www.cdc.gov/niosh/engcontrols/ecd/detail156.html"],
+          ["Industrial Scientific · Gas levels in confined spaces", "https://www.indsci.com/en/blog/acceptable-and-dangerous-gas-levels-in-confined-spaces"],
+          ["Queensland Government · Methane management in underground coal mines", "https://www.resources.qld.gov.au/__data/assets/pdf_file/0004/1449121/methane-management-in-underground-coal-mines.pdf"],
+          ["MineARC · Methane hazards", "https://minearc.com/methane-health-and-safety-hazards-fact-sheet/"]
+        ]
+      },
+      {
+        code: "CO",
+        title: "Carbon monoxide alert basis",
+        summary: "The supplied guidance identifies 25–50 ppm over an 8-hour shift as unsafe and 0–9 ppm as a desirable background. The dashboard does not calculate time-weighted exposure.",
+        links: [
+          ["OSHA · Carbon monoxide chemical data", "https://www.osha.gov/chemicaldata/462"],
+          ["MSHA · Carbon Monoxide & Mining", "https://www.msha.gov/sites/default/files/Alerts%20and%20Hazards/HH%20Cards/HH-28%20Carbon%20Monoxide%20&%20Mining.pdf"],
+          ["CO2Meter · Carbon monoxide levels chart", "https://www.co2meter.com/blogs/news/carbon-monoxide-levels-chart"],
+          ["WV Law · Carbon monoxide and mining", "https://www.wvlaw.net/2015/04/17/a-coal-miners-silent-killer-carbon-monoxide/"],
+          ["Worksite Med · Carbon monoxide safety", "https://worksitemed.com/protect-your-team-from-carbon-monoxide/"]
+        ]
+      },
+      {
+        code: "CO2",
+        title: "Carbon dioxide alert basis",
+        summary: "5,000 ppm (0.5%) is the supplied 8-hour limit; a well-ventilated tunnel is ideally below 2,500 ppm. The dashboard does not calculate time-weighted exposure.",
+        links: [
+          ["OSHA · Carbon dioxide chemical data", "https://www.osha.gov/chemicaldata/183"],
+          ["NIOSH · Pocket Guide to Chemical Hazards", "https://www.cdc.gov/niosh/npg/npgd0103.html"],
+          ["CDC Stacks · supplied reference", "https://stacks.cdc.gov/view/cdc/206362/cdc_206362_DS1.pdf"],
+          ["WestAir Gases · CO₂ levels", "https://westairgases.com/blog/what-co2-level-is-dangerous/"]
+        ]
+      }
+    ];
+    return '<section class="alert-source-section"><div class="toolbar"><h2 class="section-title">Sources and basis for alert criteria</h2></div><div class="alert-source-grid">' +
+      sources.map(function (source) {
+        return '<article class="panel alert-source"><div class="panel-head"><h2>' + escapeHtml(source.title) + '</h2></div><div class="panel-body"><p>' +
+          escapeHtml(source.summary) + '</p><ul>' + source.links.map(function (link) {
+            return '<li><a href="' + escapeHtml(link[1]) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(link[0]) + '</a></li>';
+          }).join("") + '</ul></div></article>';
+      }).join("") + '</div></section>';
   }
 
   function liveControls() {
@@ -154,7 +262,7 @@
       '<div class="status-line"><span>Current values unchanged</span><span>' + escapeHtml(snapshotRange()) + '</span></div>' +
       '<div class="status-line"><span>Data source</span><span>ESP32 · Supabase</span></div>' +
       '<div class="status-line"><span>Battery readings</span><span>Not sent by current firmware</span></div>' +
-      '<div class="status-line"><span>Alerts</span><span>Not configured for live data</span></div></section></div>' + gasReferencePanel() +
+      '<div class="status-line"><span>Alerts</span><span>Latest-reading checks only · not stored</span></div></section></div>' + gasReferencePanel() +
       '<div class="split">' + liveControls() + '<section class="panel"><div class="panel-head"><h2>Helmet details</h2><span>Minewatch Helmet 001</span></div>' +
       '<div class="status-line"><span>Helmet ID</span><span>HELMET-001</span></div>' +
       '<div class="status-line"><span>Participant</span><span>MINER-001 · anonymized</span></div>' +
@@ -231,12 +339,101 @@
 
   function alerts() {
     const s = state();
-    return header("Alerts", "The current Supabase telemetry table stores sensor readings, not alert records or calibrated thresholds.") +
-      '<section class="panel"><div class="panel-head"><h2>Live alert status</h2><span>Not configured</span></div>' +
-      '<div class="empty"><div class="empty-inner"><h3>No live alert stream is configured</h3>' +
-      '<p>Raw ADC counts are not calibrated concentrations, so the dashboard does not infer warning or critical gas levels. Add a validated alert pipeline and policy before displaying operational alerts.</p>' +
-      '</div></div><div class="status-line"><span>Latest database check</span><span>' + escapeHtml(time(s.lastCheckedAt)) + '</span></div></section>' +
-      '<p class="disclaimer">Do not use this prototype as a certified safety system.</p>';
+    return header("Alerts", "Latest sensor readings compared with provisional criteria.") +
+      '<section class="panel"><div class="panel-head"><h2>Latest reading checks</h2><span>Checked ' + escapeHtml(time(s.lastCheckedAt)) + '</span></div>' +
+      '<div class="alert-check-grid">' + alertChecks().map(function (item) {
+        return '<article class="alert-check"><div class="alert-check-head"><div><h3>' + escapeHtml(item.title) + '</h3><span>' + escapeHtml(item.value) + '</span></div>' +
+          badge(item.status) + '</div><p><strong>Criteria:</strong> ' + escapeHtml(item.threshold) + '</p><p class="small-meta">' +
+          escapeHtml(item.basis) + '</p></article>';
+      }).join("") + '</div></section>' + alertSources() +
+      '<p class="disclaimer"></p>';
+  }
+
+  function mlScenario() {
+    const definitions = [
+      { code: "CH4", title: "Methane · MQ-4", unit: "ADC", max: 3600, warning: 720, critical: 900, seedPrevious: 350, seedCurrent: 360 },
+      { code: "CO", title: "Carbon monoxide · MQ-7", unit: "ADC", max: 3200, warning: 200, critical: 400, seedPrevious: 155, seedCurrent: 160 },
+      { code: "CO2", title: "Carbon dioxide · MG811", unit: "ADC", max: 2200, warning: 275, critical: 275, seedPrevious: 108, seedCurrent: 110 },
+      { code: "HEART", title: "Heart rate · pulse sensor", unit: "bpm", max: 250, warning: 130, critical: 140, seedPrevious: 76, seedCurrent: 78 }
+    ];
+    const s = state();
+    const samples = definitions.map(function (definition) {
+      const current = s.readings[definition.code];
+      const hasLive = current && current.value != null;
+      const records = s.history.filter(function (record) {
+        return record.sensorCode === definition.code && Number.isFinite(Number(record.value));
+      }).slice().sort(function (a, b) { return Date.parse(b.timestamp) - Date.parse(a.timestamp); });
+      const baseline = hasLive ? Number(current.value) : definition.seedCurrent;
+      const previous = records.length > 1 ? Number(records[1].value) :
+        hasLive ? null : definition.seedPrevious;
+      const candidate = Math.max(0, Math.min(definition.max, Math.round(baseline)));
+      const rising = previous != null && candidate > previous + Math.max(1, definition.warning * .05) &&
+        candidate >= definition.warning * .75;
+      let status = "Normal";
+      let reason = "Below the demo criteria.";
+      if (definition.code === "HEART") {
+        if (candidate > 140) { status = "Critical"; reason = "Above the demo high-pulse criterion."; }
+        else if (candidate >= 130) { status = "Warning"; reason = "At or above the demo elevated-pulse criterion."; }
+        else if (candidate < 60) { status = "Review"; reason = "Below 60 bpm; activity state is unknown."; }
+      } else if (candidate >= definition.critical) {
+        status = "Critical";
+        reason = "At or above the demo high-level criterion.";
+      } else if (candidate >= definition.warning) {
+        status = "Warning";
+        reason = "At or above the demo review criterion.";
+      } else if (rising) {
+        status = "Watch";
+        reason = "Rising versus the previous sample and near the demo criterion.";
+      }
+      return {
+        code: definition.code,
+        title: definition.title,
+        unit: definition.unit,
+        max: definition.max,
+        warning: definition.warning,
+        critical: definition.critical,
+        baseline: baseline,
+        previous: previous,
+        candidate: candidate,
+        source: hasLive ? s.deviceOnline ? "Live telemetry" : "Latest saved telemetry (stale)" : "Standard mock seed",
+        rising: rising,
+        status: status,
+        reason: reason
+      };
+    });
+    const critical = samples.filter(function (sample) { return sample.status === "Critical"; });
+    const elevated = samples.filter(function (sample) {
+      return sample.status === "Warning" || sample.status === "Review" || sample.status === "Watch";
+    });
+    return {
+      samples: samples,
+      outcome: critical.length ? "High-risk pattern" : elevated.length ? "Elevated pattern" : "Baseline-like pattern",
+      status: critical.length ? "Critical" : elevated.length ? "Warning" : "Normal",
+      explanation: critical.length
+        ? critical.map(function (sample) { return sample.title + " " + sample.reason.toLowerCase(); }).join(" ")
+        : elevated.length
+          ? elevated.map(function (sample) { return sample.title + " " + sample.reason; }).join(" ")
+          : "No demo criteria are crossed in the entered scenario."
+    };
+  }
+
+  function mlPredictions() {
+    const scenario = mlScenario();
+    return header("ML predictions") +
+      '<div class="notice ml-notice"><strong>Mock demonstration, not a trained ML model.</strong> The outcome below is generated by transparent example rules and provisional ADC thresholds. Gas sensor counts are uncalibrated. Do not use this as a safety decision.</div>' +
+      '<section class="panel ml-outcome"><div class="panel-head"><h2>Illustrative scenario outcome</h2><span>Recalculated from current inputs</span></div><div class="panel-body">' +
+      '<div class="ml-result ' + statusClass(scenario.status) + '"><span class="ml-result-label">Mock prediction</span><strong>' +
+      escapeHtml(scenario.outcome) + '</strong><p>' + escapeHtml(scenario.explanation === "No demo criteria are crossed in the entered scenario." ? "No demo criteria are crossed in the latest readings." : scenario.explanation) + '</p></div></div></section>' +
+      '<section class="panel ml-data-panel"><div class="panel-head"><h2>Latest sensor readings and mock example</h2><span>Recalculated from live ESP32 data</span></div>' +
+      '<div class="table-wrap"><table class="ml-table"><thead><tr><th>Sensor</th><th>Previous reading</th><th>Latest real reading</th><th>Change</th><th>Example signal</th></tr></thead><tbody>' +
+      scenario.samples.map(function (sample) {
+        const change = sample.previous == null ? "No earlier sample" :
+          (sample.candidate - sample.previous > 0 ? "+" : "") + fmt(sample.candidate - sample.previous) + " " + sample.unit;
+        return '<tr><td>' + escapeHtml(sample.title) + '</td><td>' +
+          (sample.previous == null ? "Not available" : fmt(sample.previous) + " " + escapeHtml(sample.unit)) +
+          '</td><td><strong>' + fmt(sample.candidate) + ' ' + escapeHtml(sample.unit) + '</strong><br><small>' + escapeHtml(sample.source) + '</small></td><td>' + change +
+          '</td><td>' + badge(sample.status) + '<br><small>' + escapeHtml(sample.reason) + '</small></td></tr>';
+      }).join("") + '</tbody></table></div></section>' 
   }
 
   function history() {
@@ -289,7 +486,7 @@
     const selectionStart = focused && typeof focused.selectionStart === "number" ? focused.selectionStart : null;
     const selectionEnd = focused && typeof focused.selectionEnd === "number" ? focused.selectionEnd : null;
     const route = location.hash.replace(/^#/, "") || "overview";
-    const pages = { overview: overview, monitoring: monitoring, devices: devices, miners: miners, alerts: alerts, history: history };
+    const pages = { overview: overview, monitoring: monitoring, devices: devices, miners: miners, alerts: alerts, "ml-predictions": mlPredictions, history: history };
     const page = pages[route] || pages.overview;
     nav.querySelectorAll("a[data-route]").forEach(function (link) {
       if (link.dataset.route === (pages[route] ? route : "overview")) link.setAttribute("aria-current", "page");
