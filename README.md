@@ -1,6 +1,6 @@
-# Minewatch | Helmet Monitoring
+# A.R.G.O.S. | Advanced Real-Time Gas Occupational Safety
 
-Minewatch reads real ESP32 gas-sensor and optional pulse-sensor telemetry from Supabase and refreshes the latest rows every 10 seconds. The existing mock simulator remains in `mockSensorEngine.js` but is not loaded by the app.
+A.R.G.O.S. reads real ESP32 gas-sensor and optional pulse-sensor telemetry from Supabase and refreshes the latest rows every 10 seconds. The existing mock simulator remains in `mockSensorEngine.js` but is not loaded by the app.
 
 ## Configure the public dashboard
 
@@ -15,28 +15,27 @@ Minewatch reads real ESP32 gas-sensor and optional pulse-sensor telemetry from S
 ## Live data behavior
 
 - The browser queries the Supabase REST API for the newest 5,000 `HELMET-001` ESP32 rows and refreshes every 10 seconds.
-- Database codes map to dashboard labels: `MQ4_ADC` → methane (MQ-4), `MQ7_ADC` → CO (MQ-7), and `MG811_ADC` → CO₂ (MG811). Live readings remain raw **NOT CALIBRATED** ADC counts. The Alerts page shows provisional comparisons only, not verified safe/warning/critical gas ratings. ADC zero is not treated as zero gas.
+- Database codes map to dashboard labels: `MQ4_ADC` → methane (MQ-4), `MQ7_ADC` → CO (MQ-7), and `MG811_ADC` → CO₂ (MG811). Live gas readings remain raw **NOT CALIBRATED** ADC counts. The dashboard displays the supplied DENR Administrative Order No. 97-30, Rule 153(a) concentration references—CO 50 ppm, CH₄ 2,500 ppm, and CO₂ 5,000 ppm—but does not compare them with ADC values. Republic Act No. 7076 provides the small-scale mining policy context; the numerical gas limits shown are from Rule 153(a). ADC zero is not treated as zero gas.
 - `PULSE_BPM` maps to the dashboard's heart-rate reading in bpm. The firmware sends `0` when no recent beat is detected; the database records it with the status **No beat detected**. Nonzero values are informational only, not a medical measurement.
 - The ingestion function inserts a snapshot when any submitted value changes: three gas rows and one pulse row, including `0` when no beat is detected. Identical submitted readings update `received_at` on the existing rows instead. Run `supabase/telemetry_last_seen_permission.sql` once to grant the function's service role SELECT and `received_at`-only UPDATE permissions. Redeploy the Edge Function after pulling the code change.
 - History shows when a snapshot started and when it was last confirmed unchanged. Before this behavior is deployed, old rows may still contain one row for every upload.
-- The Alerts page compares the latest heart-rate and gas readings with the supplied criteria and provides a per-sensor source section. Gas comparisons are provisional raw-ADC cutoffs, not measured concentrations: they assume linear scaling from tested maxima of 3,600 (MQ-4), 3,200 (MQ-7), and 2,200 (MG811). The assumed endpoints are 5% methane, 400 ppm CO, and 40,000 ppm CO₂, respectively; none is a verified sensor calibration. The resulting cutoffs are 720/900 counts for methane warning/critical, 200/400 counts for CO warning/critical, and 275 counts for CO₂. Validate against certified gas standards before use.
-- Heart-rate checks flag the latest available value at or above 130 bpm and above 140 bpm, and mark readings below 60 bpm for review. The dashboard cannot confirm sustained full-shift exposure, miner age, or active-work status, so it cannot evaluate the age-predicted maximum or the active-only low-pulse condition.
-- Latest-reading checks are client-side and not persisted. The Alerts page also lists up to 100 recent threshold crossings reconstructed from the loaded telemetry history; these are not saved alert records, and earlier crossings outside the loaded 5,000 rows cannot be shown. Notifications are not sent, and no occupational exposure average is calculated. Battery data remains unreported. The prototype is not a certified safety system or medical device.
-- The **ML predictions** page is a scenario demo, not a trained model: it uses the latest available ESP32 readings and the second-most-recent saved reading with transparent example rules. Stale or missing live sensors are labeled separately, and standard mock seeds are used only when no live or saved value exists. A future trained model needs calibrated, time-aligned data and expert-reviewed labels; do not use this mock output for safety decisions.
-- The ML predictions page includes a derived **Warning-to-critical history** table. It sorts saved records by time and lists only transitions from Warning to Critical for methane and carbon monoxide, or heart rate when it crosses the demo thresholds. It is generated on the page and is not a persisted alert record.
+- The Alerts page presents current raw readings beside the supplied Rule 153(a) concentration limits. Gas status remains **Calibration required** while readings are ADC counts; the Previous alerts table does not infer threshold crossings from uncalibrated historical counts. The supplied limits are references and do not by themselves establish averaging periods, sensor-specific calibration, or applicability to a particular mine.
+- The supplied 60–100 bpm adult resting range is displayed as context only. Heart rate varies with age, activity, and individual health; the dashboard does not issue medical or occupational heart-rate alerts. Heart readings are informational and not medical measurements.
+- The Sensor analysis page includes a one-hour linear trend estimate per sensor, based only on saved ESP32 readings from the most recent six hours. It requires at least 8 readings spanning 30 minutes; otherwise it reports insufficient data and does not synthesize a prediction. Its approximate 70% prediction interval is calculated from model residuals and is not a 70% probability that the forecast is correct. Gas forecasts remain raw ADC trends, not ppm or safety risk predictions; historical data is never back-converted to ppm.
+- Notifications are not sent, and no occupational exposure average is calculated. Battery data remains unreported. This prototype is not a certified safety system or medical device.
 - Live history, charts, filtering, pagination, and CSV export use rows returned from Supabase. Data is read-only in the browser.
 - If setup is incomplete, the dashboard displays the database/configuration error rather than falling back to simulated readings.
 
 ## Files
 
 - `index.html` — dashboard shell and scripts.
-- `app.css` — responsive Minewatch theme.
+- `app.css` — responsive A.R.G.O.S. theme.
 - `app.js` — pages, filters, charts, and rendering.
 - `supabase-public-config.js` — browser-safe Supabase URL and publishable/anon key.
 - `supabase-provider.js` — read-only REST polling and row mapping.
 - `supabase/functions/ingest-telemetry/index.ts` — device-token-authenticated ingestion function.
 - `supabase/telemetry_public_read_policy.sql` — narrowly scoped public read policy for the selected device.
-- `mockSensorEngine.js` — preserved mock implementation, currently unused by the page.
+- `mockSensorEngine.js` — preserved simulator, currently unused by the page.
 - `Pictures/webBG.jpg` — dashboard background.
 
 ## Analog pulse sensor setup
