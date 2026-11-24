@@ -3,8 +3,8 @@
 
   const LIMITS = 5000;
   const sensors = [
-    { code: "CH4", name: "MQ-4", short: "Methane (CH₄)", unit: "ADC counts", initial: 120, min: 80, max: 250, warning: 200, critical: 235, step: 7 },
-    { code: "CO", name: "MQ-7", short: "Carbon Monoxide (CO)", unit: "ADC counts", initial: 180, min: 100, max: 350, warning: 280, critical: 330, step: 10 },
+    { code: "CH4", name: "MQ-4", short: "Methane (CH₄)", unit: "ppm", initial: 120, min: 80, max: 250, warning: 200, critical: 235, step: 7 },
+    { code: "CO", name: "MQ-7", short: "Carbon Monoxide (CO)", unit: "ppm", initial: 180, min: 100, max: 350, warning: 280, critical: 330, step: 10 },
     { code: "CO2", name: "MG-811", short: "Carbon Dioxide (CO₂)", unit: "ppm (simulated)", initial: 650, min: 450, max: 1200, warning: 900, critical: 1100, step: 35 },
     { code: "HR", name: "Ear-Clip Heart Rate", short: "Heart rate", unit: "BPM", initial: 78, min: 65, max: 100, warning: 105, critical: 120, step: 3 },
     { code: "BATTERY", name: "Voltage Sensor", short: "Battery Voltage", unit: "V", initial: 3.9, min: 3.3, max: 4.2, warning: 2.8, critical: 2.6, step: 0.025 },

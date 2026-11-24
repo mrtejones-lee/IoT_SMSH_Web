@@ -1,9 +1,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const allowedReadings: Record<string, string> = {
-  MQ4_ADC: "ADC counts",
-  MQ7_ADC: "ADC counts",
-  MG811_ADC: "ADC counts",
+  MQ4_ADC: "ppm",
+  MQ7_ADC: "ppm",
+  MG811_ADC: "ppm",
   PULSE_BPM: "bpm",
 };
 const requiredReadings = ["MQ4_ADC", "MQ7_ADC", "MG811_ADC"];

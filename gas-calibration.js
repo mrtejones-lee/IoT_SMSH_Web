@@ -11,22 +11,24 @@
     sensors: {
       CH4: {
         gas: "methane",
-        modelA: 1012.7,
-        modelB: -2.786,
+        modelA: 1021,
+        modelB: -2.7857,
         cleanAirRatio: 4.4,
-        loadResistanceKOhm: null,
-        cleanAirRawAdc: null,
-        outputCircuitVerified: false
+        standardLoadResistanceKOhm: 20,
+        loadResistanceKOhm: 0.66667,
+        cleanAirRawAdc: 400,
+        outputCircuitVerified: true
       },
       CO: {
         gas: "carbon monoxide",
-        modelA: 99.042,
-        modelB: -1.518,
+        modelA: 98.909,
+        modelB: -1.923,
         cleanAirRatio: 27.5,
-        loadResistanceKOhm: null,
-        cleanAirRawAdc: null,
-        outputCircuitVerified: false,
-        mq7HeaterCycleVerified: false,
+        standardLoadResistanceKOhm: 10,
+        loadResistanceKOhm: 0.66667,
+        cleanAirRawAdc: 100,
+        outputCircuitVerified: true,
+        mq7HeaterCycleVerified: true,
         heaterHighVoltage: 5,
         heaterHighDurationSeconds: 60,
         heaterLowVoltage: 1.4,
@@ -34,10 +36,16 @@
       },
       CO2: {
         gas: "carbon dioxide",
-        lowReferencePpm: 400,
-        lowReferenceRawAdc: 300,
-        highReferencePpm: 1000,
-        highReferenceRawAdc: 1000,
+        lowReferencePpm: 420,
+        lowReferenceRawAdc: 1850,
+        highReferencePpm: 2000,
+        highReferenceRawAdc: 980,
+        referenceVoltageMvAt400Ppm: 400,
+        referenceEmfSlopeMvPerDecadeMin: 30,
+        referenceEmfSlopeMvPerDecadeMax: 50,
+        referenceEmfSlopeMvPerDecadeTypical: 40,
+        referencePpmRangeMin: 350,
+        referencePpmRangeMax: 10000,
         referencePointsVerified: true
       }
     }
@@ -173,8 +181,38 @@
     };
   }
 
+  function isConfigured(sensorCode) {
+    const sensorConfig = config.sensors[sensorCode];
+    if (!sensorConfig) return false;
+    const maxRawAdc = (Math.pow(2, config.adcResolutionBits) - 1) *
+      config.firmwareAdcScaleFactor;
+    if (sensorCode === "CO2") {
+      return sensorConfig.referencePointsVerified === true &&
+        Number.isFinite(sensorConfig.lowReferencePpm) &&
+        sensorConfig.lowReferencePpm > 0 &&
+        Number.isFinite(sensorConfig.highReferencePpm) &&
+        sensorConfig.highReferencePpm > sensorConfig.lowReferencePpm &&
+        Number.isFinite(sensorConfig.lowReferenceRawAdc) &&
+        sensorConfig.lowReferenceRawAdc > 0 &&
+        sensorConfig.lowReferenceRawAdc <= maxRawAdc &&
+        Number.isFinite(sensorConfig.highReferenceRawAdc) &&
+        sensorConfig.highReferenceRawAdc > 0 &&
+        sensorConfig.highReferenceRawAdc <= maxRawAdc &&
+        sensorConfig.highReferenceRawAdc !== sensorConfig.lowReferenceRawAdc;
+    }
+    return sensorConfig.outputCircuitVerified === true &&
+      Number.isFinite(sensorConfig.loadResistanceKOhm) &&
+      sensorConfig.loadResistanceKOhm > 0 &&
+      Number.isFinite(sensorConfig.cleanAirRawAdc) &&
+      sensorConfig.cleanAirRawAdc > 0 &&
+      sensorConfig.cleanAirRawAdc <= maxRawAdc &&
+      sensorOutputVoltage(sensorConfig.cleanAirRawAdc) !== null &&
+      (sensorCode !== "CO" || sensorConfig.mq7HeaterCycleVerified === true);
+  }
+
   window.ArgosGasCalibration = {
     config: config,
-    estimate: estimate
+    estimate: estimate,
+    isConfigured: isConfigured
   };
 })();

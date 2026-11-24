@@ -79,8 +79,11 @@
     if (rawAdc == null) return fallback;
     const gas = gasLimits.find(function (item) { return item.code === code; });
     const estimate = gasEstimate(code, rawAdc);
-    return estimate && estimate.available && gas
-      ? concentrationStatus(gas, estimate.ppm)
+    if (estimate && estimate.available && gas) {
+      return concentrationStatus(gas, estimate.ppm);
+    }
+    return gasCalibration && gasCalibration.isConfigured(code)
+      ? "Reading out of range"
       : "Calibration required";
   }
   function gasPpmReading(code, rawAdc) {
@@ -92,7 +95,7 @@
   function gasEstimateNote(code, rawAdc) {
     if (rawAdc == null) return '<div class="small-meta calibration-note">Raw ADC reading unavailable.</div>';
     const result = gasEstimate(code, rawAdc);
-    return '<div class="small-meta raw-reading">Raw signal: ' + escapeHtml(fmt(rawAdc)) + ' ADC counts</div>' +
+    return '<div class="small-meta reading">Raw signal: ' + escapeHtml(fmt(rawAdc)) + ' ppm</div>' +
       (result && result.available
         ? '<div class="small-meta gas-estimate">Estimated concentration: ' + escapeHtml(fmt(result.ppm, 1)) +
           ' ppm · ' + escapeHtml(result.calibrationType === "two-point log-linear"
@@ -173,18 +176,25 @@
   function gasThresholdSummary() {
     const s = state();
     let configured = 0;
+    let screened = 0;
     let active = 0;
     gasLimits.forEach(function (gas) {
+      if (gasCalibration && gasCalibration.isConfigured(gas.code)) configured += 1;
       const item = s.readings[gas.code];
       if (!item || item.value == null || !s.deviceOnline) return;
       const estimate = gasEstimate(gas.code, item.value);
       if (!estimate || !estimate.available) return;
-      configured += 1;
+      screened += 1;
       if (concentrationStatus(gas, estimate.ppm) !== "Normal") active += 1;
     });
     return {
-      value: active ? String(active) + " active" : configured ? "None active" : "Calibration required",
-      detail: configured ? "Estimated ppm screening · " + configured + " sensor(s) configured" : "No calibrated current gas estimates"
+      value: active ? String(active) + " active" : screened ? "None active" :
+        configured ? "Awaiting valid readings" : "Calibration required",
+      detail: screened
+        ? "Estimated ppm screening · " + screened + " sensor(s) available"
+        : configured
+          ? "Calibration set; current readings are unavailable or outside the valid range"
+          : "No calibrated current gas estimates"
     };
   }
 
@@ -198,7 +208,7 @@
             ? "MG811 estimate within its verified reference range"
             : "Estimated-ppm screening when configured") + "</td></tr>";
       }).join("") +
-      '</tbody></table></div><p class="small-meta">The Republic Act No. 7076 reference provides the small-scale mining policy context; the numerical gas limits shown here are from DENR Administrative Order No. 97-30, Rule 153(a), using the values supplied for this project. Warning is a software screening band at 80% of the supplied limit; Critical is at or above the limit. Estimates are model outputs, not certified measurements. A zero ADC count is not evidence of zero gas. Confirm the rule’s applicability and averaging requirements with the responsible mine safety authority.</p></div></section>';
+      '</tbody></table></div><p class="small-meta">The Republic Act No. 7076 reference provides the small-scale mining policy context; the numerical gas limits shown here are from DENR Administrative Order No. 97-30, Rule 153(a), using the values supplied for this project. Warning is a software screening band at 80% of the supplied limit; Critical is at or above the limit. Estimates are model outputs, not certified measurements. A zero ppm reading is not evidence of zero gas. Confirm the rule’s applicability and averaging requirements with the responsible mine safety authority.</p></div></section>';
   }
 
   function alertChecks() {
@@ -230,16 +240,19 @@
               : "ppm unavailable"
             : "No current reading",
           status: !hasReading ? "No data" :
-            estimate && estimate.available ? concentrationStatus(gas, estimate.ppm) : "Calibration required",
+            estimate && estimate.available ? concentrationStatus(gas, estimate.ppm) :
+              gasCalibration && gasCalibration.isConfigured(gas.code)
+                ? "Reading out of range"
+                : "Calibration required",
           threshold: "Warning at " + fmt(gas.warning) + " ppm; critical at or above " +
             fmt(gas.limit) + " ppm (" + gas.percent + ").",
           basis: estimate && estimate.available
-            ? "Raw reading: " + fmt(item.value) + " ADC counts. Estimated with " +
+            ? "Raw reading: " + fmt(item.value) + " ppm. Estimated with " +
               (estimate.calibrationType === "two-point log-linear"
                 ? "the configured two-point MG811 fit."
                 : "the configured MQ response curve and clean-air baseline.") +
               " Screening bands are software thresholds, not certified concentration measurements."
-            : "Raw reading: " + fmt(item.value) + " ADC counts; it is not compared directly with a ppm limit. " +
+            : "Raw reading: " + fmt(item.value) + " ppm; it is not compared directly with a ppm limit. " +
               (estimate ? estimate.reason : "Gas calibration is not configured.")
         };
       }));
@@ -254,7 +267,7 @@
       },
       {
         title: "Mine-air gas limits",
-        summary: "The Rule 153(a) values supplied for this study are: carbon monoxide not more than 50 ppm, methane not more than 2,500 ppm, and carbon dioxide not more than 5,000 ppm. These concentration limits cannot be applied to raw ADC counts."
+        summary: "The Rule 153(a) values supplied for this study are: carbon monoxide not more than 50 ppm, methane not more than 2,500 ppm, and carbon dioxide not more than 5,000 ppm. These concentration limits cannot be applied to raw ppm."
       }
     ];
     return '<section class="alert-source-section"><div class="toolbar"><h2 class="section-title">Threshold references and interpretation</h2></div><div class="alert-source-grid">' +
@@ -326,7 +339,7 @@
       }).join("") + '</div></div></section>' +
       '<div class="split">' + liveControls() + '<section class="panel"><div class="panel-head"><h2>Hardware and data notes</h2><span>HELMET-001</span></div>' +
       '<div class="status-line"><span>Analog acquisition</span><span>ESP32 built-in ADC · four channels</span></div>' +
-      '<div class="status-line"><span>MQ-4</span><span>Methane module · raw ADC counts</span></div>' +
+      '<div class="status-line"><span>MQ-4</span><span>Methane module · ppm</span></div>' +
       '<div class="status-line"><span>MG811</span><span>CO₂ ppm estimate from two known references; raw ADC retained</span></div>' +
       '<div class="status-line"><span>Heart rate</span><span>Pulse sensor · GPIO 32 · bpm when detected</span></div>' +
       '<p class="disclaimer">Gas modules require calibration before interpreting readings as concentration. Pulse readings are informational only, not medical measurements.</p></section></div>';
@@ -618,7 +631,7 @@
         ? Number(current.value)
         : records.length ? Number(records[0].value) : null;
       const previous = records.length > 1 ? Number(records[1].value) : null;
-      const unit = sensor.code === "HEART" ? "bpm" : "ADC counts";
+      const unit = sensor.code === "HEART" ? "bpm" : "ppm";
       const estimate = latest != null &&
         (sensor.code === "CH4" || sensor.code === "CO" || sensor.code === "CO2")
         ? gasEstimate(sensor.code, latest)
@@ -652,7 +665,7 @@
       calibrationConfigPanel() +
       '<section class="panel ml-explainer"><div class="panel-head"><h2>Calibration requirements</h2><span>Before concentration alerting</span></div><div class="panel-body">' +
       '<p>The study’s MQ-4/MQ-7 curves estimate ppm as A × (Rs/R0)^B. MG811 uses a separate two-point logarithmic fit between known CO₂ concentrations and averaged raw ADC readings, capturing the installed module and analog path. Reference-gas measurements are required before estimates can be enabled.</p>' +
-      '<p>Existing telemetry remains raw ADC counts. Estimates are recalculated on screen and are not written back as ppm in the database.</p></div></section>';
+      '</div></section>';
   }
 
   function warningToCriticalRows() {
@@ -684,12 +697,7 @@
         Number.isFinite(sensor.highReferenceRawAdc) &&
         sensor.lowReferencePpm < sensor.highReferencePpm &&
         sensor.lowReferenceRawAdc !== sensor.highReferenceRawAdc;
-      const ready = isMg811
-        ? sensor.referencePointsVerified && mg811PointsValid
-        : sensor.outputCircuitVerified &&
-          Number.isFinite(sensor.loadResistanceKOhm) &&
-          Number.isFinite(sensor.cleanAirRawAdc) &&
-          (code !== "CO" || sensor.mq7HeaterCycleVerified);
+      const ready = gasCalibration.isConfigured(code);
       const sensorName = code === "CH4" ? "MQ-4 · Methane" :
         code === "CO" ? "MQ-7 · Carbon monoxide" : "MG811 · Carbon dioxide";
       const mg811Slope = mg811PointsValid
@@ -703,7 +711,10 @@
         ? mg811PointsValid
           ? "log10(ppm) = " + mg811Slope.toExponential(3) + " × ADC + " + mg811Intercept.toFixed(3)
           : "Two-point log-linear fit"
-        : sensor.modelA + " × (Rs/R0)^" + sensor.modelB;
+        : sensor.modelA + " × (Rs/R0)^" + sensor.modelB +
+          (sensor.standardLoadResistanceKOhm
+            ? " · standard RL " + sensor.standardLoadResistanceKOhm + " kΩ"
+            : "");
       const cleanAirRatio = isMg811 ? "—" : sensor.cleanAirRatio;
       const loadResistance = isMg811
         ? "—"
@@ -727,8 +738,9 @@
     const mg811RangeNote = Number.isFinite(mg811.lowReferencePpm) &&
       Number.isFinite(mg811.highReferencePpm)
       ? "MG811 current two-point fit covers " + fmt(mg811.lowReferencePpm) + "–" +
-        fmt(mg811.highReferencePpm) + " ppm only; readings outside the reference points are unavailable. " +
-        "Use a verified higher reference near the 5,000 ppm limit before relying on CO₂ threshold screening."
+      fmt(mg811.highReferencePpm) + " ppm only; readings outside the reference points are unavailable. " +
+      "Standard summary factors: V400 ≈ 400 mV at 400 ppm CO₂; reference slope ≈ 30–50 mV per decade (40 mV typical), valid for the 350–10,000 ppm reference range. " +
+      "Use verified MG811 reference points near or above the 5,000 ppm limit before relying on CO₂ threshold screening."
       : "Enter the MG811 reference readings to enable estimated CO₂ ppm.";
     return '<section class="panel ml-explainer"><div class="panel-head"><h2>Gas calibration setup</h2><span>MQ curves + MG811 two-point fit</span></div><div class="panel-body">' +
       '<p>MQ sensor conversion assumes the configured ' + calibration.adcResolutionBits + '-bit ADC × ' +
@@ -736,6 +748,7 @@
       ' V ADC full scale; external divider ' + calibration.dividerTopOhms + ' Ω / ' +
       calibration.dividerBottomOhms + ' Ω (ratio ' + fmt(dividerRatio, 3) + '); sensor supply ' +
       calibration.sensorSupplyVoltage + ' V.</p>' +
+      '<p class="small-meta">The reported MQ-4/MQ-7 module RL is 0.66667 kΩ, below the standard reference ranges (MQ-4 10–47 kΩ; MQ-7 5–47 kΩ). Confirm that this is the actual sensing load resistor, not an equivalent value from the ESP32 divider.</p>' +
       '<div class="table-wrap"><table class="ml-table"><thead><tr><th>Sensor / gas</th><th>Calibration model</th><th>Clean-air Rs/R0 / reference</th><th>Module RL</th><th>Baseline / reference points</th><th>State</th></tr></thead><tbody>' +
       models + '</tbody></table></div>' +
       '<p>' + escapeHtml(mg811RangeNote) + '</p>' +

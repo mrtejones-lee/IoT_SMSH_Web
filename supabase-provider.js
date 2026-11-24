@@ -3,15 +3,15 @@
 
   const config = window.MINEWATCH_SUPABASE_CONFIG;
   const sensorMap = {
-    MQ4_ADC: { code: "CH4", name: "MQ-4", unit: "ADC counts" },
-    MQ7_ADC: { code: "CO", name: "MQ-7", unit: "ADC counts" },
-    MG811_ADC: { code: "CO2", name: "MG811", unit: "ADC counts" },
+    MQ4_ADC: { code: "CH4", name: "MQ-4", unit: "ppm" },
+    MQ7_ADC: { code: "CO", name: "MQ-7", unit: "ppm" },
+    MG811_ADC: { code: "CO2", name: "MG811", unit: "ppm" },
     PULSE_BPM: { code: "HEART", name: "Heart rate", unit: "bpm" }
   };
   const sensors = [
-    { code: "CH4", name: "MQ-4", short: "Methane (CH₄)", unit: "ADC counts" },
-    { code: "CO", name: "MQ-7", short: "Carbon Monoxide (CO)", unit: "ADC counts" },
-    { code: "CO2", name: "MG811", short: "Carbon Dioxide (CO₂)", unit: "ADC counts" },
+    { code: "CH4", name: "MQ-4", short: "Methane (CH₄)", unit: "ppm" },
+    { code: "CO", name: "MQ-7", short: "Carbon Monoxide (CO)", unit: "ppm" },
+    { code: "CO2", name: "MG811", short: "Carbon Dioxide (CO₂)", unit: "ppm" },
     { code: "HEART", name: "Heart rate", short: "Pulse sensor", unit: "bpm" }
   ];
 
