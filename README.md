@@ -15,13 +15,13 @@ A.R.G.O.S. reads real ESP32 gas-sensor and optional pulse-sensor telemetry from 
 ## Live data behavior
 
 - The browser queries the Supabase REST API for the newest 5,000 `HELMET-001` ESP32 rows and refreshes every 10 seconds.
-- Database codes map to dashboard labels: `MQ4_ADC` → methane (MQ-4), `MQ7_ADC` → CO (MQ-7), and `MG811_ADC` → CO₂ (MG811). Gas concentration is presented in estimated ppm when the sensor's calibration is configured; raw ppm remain visible separately and are what the database stores. MQ-4/MQ-7 estimates use their configured response curves, while MG811 requires a per-unit two-point fit. Estimates and threshold screening remain unavailable until each sensor's calibration settings are complete. The dashboard displays the supplied DENR Administrative Order No. 97-30, Rule 153(a) concentration references—CO 50 ppm, CH₄ 2,500 ppm, and CO₂ 5,000 ppm. Republic Act No. 7076 provides the small-scale mining policy context; the numerical gas limits shown are from Rule 153(a). ADC zero is not treated as zero gas.
+- Database codes map to dashboard labels: `MQ4_ADC` → methane (MQ-4), `MQ7_ADC` → CO (MQ-7), and `MG811_ADC` → CO₂ (MG811). The website displays the ESP32 gas sensor values directly using the existing ppm labels.
 - `PULSE_BPM` maps to the dashboard's heart-rate reading in bpm. The firmware sends `0` when no recent beat is detected; the database records it with the status **No beat detected**. Nonzero values are informational only, not a medical measurement.
 - The ingestion function inserts a snapshot when any submitted value changes: three gas rows and one pulse row, including `0` when no beat is detected. Identical submitted readings update `received_at` on the existing rows instead. Run `supabase/telemetry_last_seen_permission.sql` once to grant the function's service role SELECT and `received_at`-only UPDATE permissions. Redeploy the Edge Function after pulling the code change.
 - History shows when a snapshot started and when it was last confirmed unchanged. Before this behavior is deployed, old rows may still contain one row for every upload.
-- The Alerts page presents estimated ppm where calibration is configured, keeps raw ADC readings as supporting data, and compares only calibrated estimates with the supplied Rule 153(a) limits. The software screening band is Warning at 80% of the supplied limit and Critical at or above the limit; this Warning band is an application choice, not a quoted legal threshold. Previous alerts are reconstructed from loaded history and configured estimates, not stored notifications. The supplied limits do not by themselves establish averaging periods, sensor-specific calibration, or applicability to a particular mine.
+- The Alerts page displays the latest ESP32 sensor readings.
 - The supplied 60–100 bpm adult resting range is displayed as context only. Heart rate varies with age, activity, and individual health; the dashboard does not issue medical or occupational heart-rate alerts. Heart readings are informational and not medical measurements.
-- The Sensor analysis page includes a one-hour linear trend estimate per sensor, based only on saved ESP32 readings from the most recent six hours. It requires at least 8 readings spanning 30 minutes; otherwise it reports insufficient data and does not synthesize a prediction. Its approximate 70% prediction interval is calculated from model residuals and is not a 70% probability that the forecast is correct. Gas forecasts are in estimated ppm and are unavailable until every plotted reading is inside its calibration range; heart-rate forecasts remain in bpm. Forecasts are not safety-risk predictions.
+- The Sensor analysis page plots and forecasts values directly from saved ESP32 readings.
 - Notifications are not sent, and no occupational exposure average is calculated. Battery data remains unreported. This prototype is not a certified safety system or medical device.
 - Live history, charts, filtering, pagination, and CSV export use rows returned from Supabase. Data is read-only in the browser.
 - If setup is incomplete, the dashboard displays the database/configuration error rather than falling back to simulated readings.
@@ -31,7 +31,7 @@ A.R.G.O.S. reads real ESP32 gas-sensor and optional pulse-sensor telemetry from 
 - `index.html` — dashboard shell and scripts.
 - `app.css` — responsive A.R.G.O.S. theme.
 - `app.js` — pages, filters, charts, and rendering.
-- `gas-calibration.js` — guarded browser-side MQ-4/MQ-7 response models; does not change stored telemetry.
+- `gas-calibration.js` — calibration module retained but not loaded by the website.
 - `supabase-public-config.js` — browser-safe Supabase URL and publishable/anon key.
 - `supabase-provider.js` — read-only REST polling and row mapping.
 - `supabase/functions/ingest-telemetry/index.ts` — device-token-authenticated ingestion function.
@@ -49,55 +49,6 @@ A.R.G.O.S. reads real ESP32 gas-sensor and optional pulse-sensor telemetry from 
 
 Heart-rate readings are informational and this prototype is not a medical device or certified safety system. Battery voltage/current and battery percentage are not uploaded.
 
-## Gas concentration estimates
+## Gas readings
 
-The browser uses the supplied study/library power-law curves for MQ sensors:
-
-| Sensor | Gas | Model |
-|---|---|---|
-| MQ-4 | Methane | `ppm = 1021 × (Rs/R0)^-2.7857` |
-| MQ-7 | Carbon monoxide | `ppm = 98.909 × (Rs/R0)^-1.923` |
-
-`gas-calibration.js` contains the user-reported settings: MQ-4 RL 0.66667 kΩ and clean-air raw ADC average 400; MQ-7 RL 0.66667 kΩ and clean-air raw ADC average 100, with output and heater-cycle verification enabled. The reported RL values are below the standard summary's typical ranges (MQ-4 10–47 kΩ; MQ-7 5–47 kΩ), so ensure these are the actual sensing load resistors and not the ESP32 divider's equivalent resistance. The clean-air resistance reference is derived as `R0 = Rs_clean / cleanAirRatio`; the normalized ratio is `Rs/R0 = cleanAirRatio × Rs_current / Rs_clean`.
-
-The conversion assumes the firmware's 10-bit ADC reading scaled by four, a nominal 3.3 V ADC full scale, the configured 1 kΩ / 2 kΩ external divider, 5 V sensor supply, and a direct unbuffered sensor/load-resistor divider. It reverses these factors to estimate module output voltage, then calculates `Rs = RL × (Vsupply / Vout - 1)`. ESP32 ADC behavior, module circuits, resistor tolerances, sensor warm-up/aging, humidity, and temperature can make the result inaccurate; the module circuit must match this assumption. The measured RL must be the load resistance in the actual sensing circuit, not an assumed nominal value.
-
-MQ-7 estimates additionally remain disabled until `mq7HeaterCycleVerified` is explicitly set after checking 5.0 V for about 60 seconds and 1.4–1.5 V for about 90 seconds, with measurements sampled in the CO-measurement phase. Current firmware does not control or report the heater phase; a module that handles cycling and phase timing itself must be verified.
-
-### MG811 two-point CO₂ calibration
-
-The cited MQ calibration study covers MQ-series sensors but does not publish an MG811 calibration coefficient. MG811 uses an output-voltage response rather than the MQ `Rs/R0` model. A public MG811 driver describes a logarithmic two-point fit and explicitly treats its default voltage values as placeholders; this project does not copy those defaults as calibration data.
-
-For the installed MG811 module and its complete analog path, measure and enter:
-
-- `lowReferencePpm` and `lowReferenceRawAdc`: a known lower CO₂ reference concentration and the stable averaged ADC reading at that gas.
-- `highReferencePpm` and `highReferenceRawAdc`: a distinct known higher CO₂ reference concentration and the stable averaged ADC reading at that gas.
-- Set `referencePointsVerified` to `true` only after confirming the reference gas values, sensor warm-up/stabilization, and readings.
-
-The browser calculates `log10(ppm) = m × rawADC + b`, where `m = (log10(P2) - log10(P1)) / (ADC2 - ADC1)` and `b = log10(P1) - m × ADC1`. This captures the installed module, amplifier, divider, and ESP32 ADC in one fit. It only returns ppm for readings between the two reference ADC points; it will not extrapolate outside the calibration range. Use traceable CO₂ reference concentrations spanning the intended operating range (including the relevant 4,000–5,000 ppm screening region); do not assume room air is exactly 400 ppm or use a generic internet/library voltage as the unit's factor. If reference-gas measurements are unavailable, leave ppm unavailable rather than treating raw ADC as ppm.
-
-The currently entered, user-provided points are 420 ppm at raw ADC 1,850 and 2,000 ppm at raw ADC 980. They yield a decreasing raw-ADC response with increasing CO₂ concentration. This fit is valid only between 420–2,000 ppm and raw ADC 980–1,850; it does not cover the 4,000 ppm Warning or 5,000 ppm Critical bands. MG811 readings outside that interval remain unavailable for ppm screening. Collect additional verified reference points near or above 5,000 ppm before relying on those higher thresholds.
-
-The project’s reference MQ paper does not cover MG811: [Calibration and standardization of air quality measurements using MQ sensors (2020)](https://revistas.ufps.edu.co/index.php/respuestas/article/download/2408/3008?inline=1). The MG811 two-point approach is consistent with the [UPM MG811 driver](https://github.com/eclipse-upm/upm/blob/eb6dd047f6024497308f9a9af24d4aa91ba63b10/src/mg811/mg811.cxx), whose comments say its example calibration voltages are placeholders to be determined for the actual environment/sensor.
-
-Example model outputs (not readings from this hardware):
-
-| Sensor | Example Rs/R0 | Curve output |
-|---|---:|---:|
-| MQ-4 | 2.2 | 112.6 ppm methane |
-| MQ-4 | 4.4 | 16.3 ppm methane |
-| MQ-4 | 8.8 | 2.4 ppm methane |
-| MQ-7 | 13.75 | 1.9 ppm CO |
-| MQ-7 | 27.5 | 0.6 ppm CO |
-| MQ-7 | 55 | 0.2 ppm CO |
-
-The standard curve factors implemented in the dashboard are:
-
-| Sensor | A | B | Clean-air Rs/R0 | Standard load RL |
-|---|---:|---:|---:|---:|
-| MQ-4 | 1021 | -2.7857 | 4.4 at 1000 ppm CH₄ | 20 kΩ |
-| MQ-7 | 98.909 | -1.923 | 27.5 at 100 ppm CO | 10 kΩ |
-
-For MG811, the standard summary factors are V400 approximately 400 mV at 400 ppm CO₂, with a 30–50 mV per-decade response (40 mV typical) and a 350–10,000 ppm reference range. The dashboard continues to use its verified two-point CO₂ fit and does not extrapolate outside that fit.
-
-These are mathematical outputs of the configured MQ curves, not evidence that the site has calibrated the installed sensors. Estimates appear as ppm with raw ADC values retained separately and are calculated in the browser only; the database remains raw ADC and CSV export includes both raw values and estimated ppm where available. Do not use estimates as a substitute for reference-gas calibration or a certified safety instrument.
+The website displays ESP32 gas sensor values directly using ppm labels.

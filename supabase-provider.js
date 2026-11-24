@@ -94,7 +94,7 @@
       unit: sensor.unit,
       status: sensor.code === "HEART"
         ? value === 0 ? "No beat detected" : "Measured"
-        : "Not calibrated",
+        : "Measured",
       timestamp: timestamp,
       lastSeenAt: row.received_at || timestamp,
       source: "ESP32"
@@ -173,7 +173,7 @@
         reading.available = Boolean(fresh);
         reading.status = !latest ? "No data" : sensor.code === "HEART"
           ? fresh ? latest.value === 0 ? "No beat detected" : "Measured" : "Stale"
-          : "Not calibrated";
+          : "Measured";
       });
 
       state.lastTelemetry = history.length ? history.reduce(function (latest, record) {
