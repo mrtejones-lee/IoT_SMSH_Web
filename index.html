@@ -33,12 +33,13 @@
           <a href="#ml-predictions" data-route="ml-predictions"><span class="nav-icon">~</span>Sensor analysis</a>
           <a href="#history" data-route="history"><span class="nav-icon">=</span>Historical data</a>
         </nav>
-        <p class="side-note">Gas readings are raw ADC counts. Rule 153(a) limits are in ppm and cannot be evaluated until gas sensors are calibrated and validated.</p>
+        <p class="side-note">Raw ADC readings are retained. Estimated ppm and threshold screening appear only when sensor-specific calibration is configured.</p>
       </aside>
       <main id="app" tabindex="-1"></main>
     </div>
   </div>
   <script src="supabase-public-config.js"></script>
+  <script src="gas-calibration.js"></script>
   <script src="supabase-provider.js"></script>
   <script src="app.js"></script>
 </body>
