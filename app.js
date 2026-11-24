@@ -247,12 +247,123 @@
       '<p class="disclaimer">MINER-001 is an anonymized demo label. Heart-rate values are informational only, not medical measurements; battery telemetry is not uploaded.</p>';
   }
 
+  function alertThresholds() {
+    return {
+      CH4: { warning: 2000, critical: 2500 },
+      CO: { warning: 40, critical: 50 },
+      CO2: { warning: 4000, critical: 5000 }
+    };
+  }
+
+  function historicalAlerts() {
+    const s = state();
+    const config = engine.config();
+    const thresholds = alertThresholds();
+    return s.history.filter(function (record) {
+      const t = thresholds[record.sensorCode];
+      if (!t) return false;
+      return record.value >= t.warning;
+    }).map(function (record) {
+      const t = thresholds[record.sensorCode];
+      const severity = record.value >= t.critical ? "Critical" : "Warning";
+      const sensor = config.find(function (c) { return c.code === record.sensorCode; });
+      return {
+        id: "HIST-" + record.id,
+        timestamp: record.timestamp,
+        code: record.sensorCode,
+        sensor: sensor ? sensor.name : record.sensorCode,
+        reading: record.value,
+        unit: record.unit,
+        threshold: severity === "Critical" ? t.critical : t.warning,
+        severity: severity,
+        description: (sensor ? sensor.name : record.sensorCode) + " exceeded its " + severity.toLowerCase() + " threshold.",
+        acknowledged: false,
+        resolved: true
+      };
+    }).sort(function (a, b) { return Date.parse(b.timestamp) - Date.parse(a.timestamp); });
+  }
+
+  function alertList(alerts) {
+    if (!alerts.length) {
+      return '<div class="empty">No alert records match the selected filters.</div>';
+    }
+    var rows = alerts.map(function (alert) {
+      var sevClass = alert.severity === "Critical" ? "critical" : (alert.severity === "Warning" ? "warning" : "review");
+      return '<div class="alert-row">' +
+        '<span class="status ' + sevClass + '">' + escapeHtml(alert.severity) + '</span>' +
+        '<div><div>' + escapeHtml(alert.sensor) + ' · ' + escapeHtml(alert.code) + '</div>' +
+        '<div class="alert-detail">' + escapeHtml(alert.description) + ' (value ' + fmt(alert.reading, 1) + ' ' + escapeHtml(alert.unit) + ', threshold ' + fmt(alert.threshold, 1) + ')</div></div>' +
+        '<div>' + escapeHtml(time(alert.timestamp)) + '</div>' +
+        '</div>';
+    }).join("");
+    return '<div class="table-wrap"><div class="alert-grid">' + rows + '</div></div>';
+  }
+
+  function alertTimelineChart(alerts) {
+    if (!alerts.length) {
+      return '<div class="empty">No alert data available for the selected period.</div>';
+    }
+    var pts = alerts.map(function (a) { return { t: Date.parse(a.timestamp), y: a.severity === "Critical" ? 2 : 1, code: a.code, sev: a.severity, val: a.reading }; });
+    pts.sort(function (a, b) { return a.t - b.t; });
+    var minT = pts[0].t, maxT = pts[pts.length - 1].t;
+    var span = Math.max(maxT - minT, 1);
+    var width = 620, height = 220, left = 50, right = 600, top = 30, bottom = 170;
+    var x = function (ts) { return left + (ts - minT) / span * (right - left); };
+    var points = pts.map(function (p) {
+      return [x(p.t).toFixed(1), (bottom - (p.y / 2) * (bottom - top)).toFixed(1), p.code, p.sev, p.val];
+    });
+    var path = points.map(function (pt) { return pt[0] + " " + pt[1]; }).join(" L ");
+    var dots = points.map(function (pt) {
+      var color = pt[3] === "Critical" ? "var(--red)" : "#f2c46f";
+      return '<circle cx="' + pt[0] + '" cy="' + pt[1] + '" r="4" fill="' + color + '" stroke="#101513" stroke-width="1" title="' + pt[2] + ' ' + pt[3] + ': ' + pt[4] + '"></circle>';
+    }).join("");
+    var gridLines = '<line x1="' + left + '" y1="' + (bottom - (bottom - top) / 2).toFixed(1) + '" x2="' + right + '" y2="' + (bottom - (bottom - top) / 2).toFixed(1) + '" stroke="rgba(235,241,232,.12)" stroke-width="1"></line>' +
+      '<line x1="' + left + '" y1="' + bottom.toFixed(1) + '" x2="' + right + '" y2="' + bottom.toFixed(1) + '" stroke="rgba(235,241,232,.12)" stroke-width="1"></line>';
+    var labels = '<text x="' + left + '" y="' + (top - 6) + '" fill="var(--muted)" font-size="9">Critical</text>' +
+      '<text x="' + left + '" y="' + (bottom + 14) + '" fill="var(--muted)" font-size="9">Warning</text>';
+    return '<div class="hardware"><strong>Alert events over time</strong>' +
+      '<svg class="chart" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Alert events over time">' +
+      '<path class="chart-grid" d="M' + left + ' ' + top + ' H' + right + ' M' + left + ' ' + bottom + ' H' + right + '"></path>' +
+      gridLines +
+      '<polyline fill="none" stroke="rgba(235,241,232,.25)" stroke-width="1" points="' + path + '"></polyline>' +
+      dots +
+      labels +
+      '</svg>' +
+      '<div class="small-meta">' + pts.length + ' alert event(s) plotted · ' + escapeHtml(time(pts[0].t)) + ' to ' + escapeHtml(time(pts[pts.length - 1].t)) + '</div>' +
+      '</div>';
+  }
+
   function alerts() {
     const s = state();
-    return header("Alerts", "Latest ESP32 sensor readings.") +
-      '<section class="panel"><div class="panel-head"><h2>Current sensor data</h2><span>Checked ' + escapeHtml(time(s.lastCheckedAt)) + '</span></div>' +
-      '<div class="sensor-grid">' + liveSensors().map(function (sensor) { return sensorCard(sensor, false); }).join("") +
-      '</div></section>';
+    const config = engine.config();
+    const f = ui.alertFilter;
+    const hist = historicalAlerts();
+    var allAlerts = s.alerts.concat(hist);
+    var filtered = allAlerts.filter(function (alert) {
+      return (f.severity === "all" || alert.severity === f.severity) &&
+        (f.sensor === "all" || alert.code === f.sensor) &&
+        (!f.date || localDateKey(alert.timestamp) === f.date) &&
+        (!f.time || localTimeKey(alert.timestamp) === f.time);
+    }).sort(function (a, b) { return Date.parse(b.timestamp) - Date.parse(a.timestamp); });
+    var active = filtered.filter(function (a) { return !a.resolved; });
+    var resolved = filtered.filter(function (a) { return a.resolved; });
+
+    return header("Alerts", "ESP32 sensor alerts — active and historical threshold events.") +
+      '<div class="form-row">' +
+      '<label class="field">Severity<select id="alert-severity"><option value="all">All severities</option><option value="Critical" ' + (f.severity === "Critical" ? "selected" : "") + '>Critical</option><option value="Warning" ' + (f.severity === "Warning" ? "selected" : "") + '>Warning</option></select></label>' +
+      '<label class="field">Sensor<select id="alert-sensor"><option value="all">All sensors</option>' +
+      config.map(function (sensor) { return '<option value="' + sensor.code + '" ' + (f.sensor === sensor.code ? "selected" : "") + '>' + escapeHtml(sensor.name) + '</option>'; }).join("") +
+      '</select></label>' +
+      '<label class="field">Date<input id="alert-date" type="date" value="' + escapeHtml(f.date) + '"></label>' +
+      '<label class="field">Time<input id="alert-time" type="time" value="' + escapeHtml(f.time) + '"></label>' +
+      '<button class="button" data-action="clear-alert-filters">Clear filters</button>' +
+      '</div>' +
+      '<section class="panel alert-notice"><div class="panel-head"><h2>Active alerts</h2><span>' + active.length + ' unresolved</span></div>' +
+      '<div class="panel-body">' + (active.length ? alertList(active) : '<div class="empty">No active alerts.</div>') + '</div></section>' +
+      '<section class="panel"><div class="panel-head"><h2>Previous alerts</h2><span>Derived from historical telemetry</span></div>' +
+      '<div class="panel-body">' + alertList(resolved) + '</div></section>' +
+      '<section class="panel"><div class="panel-head"><h2>Alert activity over time</h2><span>Threshold-exceeding events from ESP32 history</span></div>' +
+      '<div class="panel-body">' + alertTimelineChart(resolved) + '</div></section>';
   }
 
   function forecastForSensor(sensor) {
@@ -592,6 +703,9 @@
       else if (action === "toggle-details") { ui.deviceDetails = !ui.deviceDetails; render(); }
       else if (action === "clear-history-filters") {
         ui.historyFilter = { sensor: "all", status: "all", date: "", time: "", device: "all" }; ui.historyPage = 0; render();
+      }
+      else if (action === "clear-alert-filters") {
+        ui.alertFilter = { severity: "all", sensor: "all", date: "", time: "", device: "all" }; render();
       } else if (action === "export") downloadCsv();
       else if (action === "history-prev") { ui.historyPage = Math.max(0, ui.historyPage - 1); render(); }
       else if (action === "history-next") { ui.historyPage += 1; render(); }
